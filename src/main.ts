@@ -1,8 +1,8 @@
 import './style.css';
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DomeScene, EYE_HEIGHT } from './app/DomeScene';
 import { DomeProjection } from './app/DomeProjection';
+import { CameraController } from './app/CameraController';
 import { createTemplate } from './templates/registry';
 import type { AudioBusLike, Template, TemplateId } from './types';
 
@@ -15,13 +15,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.05, 1000);
-camera.position.set(18, 12, 18);
-camera.lookAt(0, EYE_HEIGHT, 0);
-
-const controls = new OrbitControls(camera, canvas);
-controls.enableDamping = true;
-controls.target.set(0, 2, 0);
-controls.maxPolarAngle = Math.PI / 2 - 0.05;
+const cameraController = new CameraController(camera, canvas);
 
 const projection = new DomeProjection(1024);
 const dome = new DomeScene(projection.material);
@@ -46,6 +40,12 @@ function setTemplate(id: TemplateId) {
 }
 setTemplate('planetarium');
 
+// Dev-mode: 1 = orbit, 2 = first-person. Will be replaced by Tweakpane in Task 11.
+window.addEventListener('keydown', (e) => {
+  if (e.key === '1') cameraController.setMode('orbit');
+  if (e.key === '2') cameraController.setMode('first-person');
+});
+
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -56,7 +56,7 @@ const clock = new THREE.Clock();
 function tick() {
   const dt = clock.getDelta();
   const time = clock.elapsedTime;
-  controls.update();
+  cameraController.update();
   current?.update(dt, time);
 
   dome.dome.visible = false;
@@ -67,3 +67,5 @@ function tick() {
   requestAnimationFrame(tick);
 }
 tick();
+
+void EYE_HEIGHT;
