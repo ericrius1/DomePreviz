@@ -8,6 +8,7 @@ import { AudioBus } from './audio/AudioBus';
 import { createTemplate } from './templates/registry';
 import { TweakpaneUI } from './ui/TweakpaneUI';
 import { FisheyeInset } from './ui/FisheyeInset';
+import { XRControllers } from './xr/XRControllers';
 import type { AppState, Template, TemplateId, CameraMode } from './types';
 
 const canvas = document.createElement('canvas');
@@ -77,6 +78,20 @@ ui = new TweakpaneUI(state, bus, projection, dome, {
 
 setTemplate('planetarium');
 
+const xrControllers = new XRControllers(renderer, {
+  onTemplateChange: (id) => {
+    setTemplate(id);
+    state.templateId = id;
+    ui?.pane.refresh();
+  },
+  onCameraModeChange: (m) => {
+    cameraController.setMode(m);
+    state.cameraMode = m;
+    ui?.pane.refresh();
+  },
+});
+dome.outerScene.add(xrControllers.group);
+
 setInterval(() => {
   if (camera.fov !== state.fov) {
     camera.fov = state.fov;
@@ -125,6 +140,8 @@ function tick() {
 
   if (inXR && projection.cubeRT.width !== 512) projection.setResolution(512);
   if (!inXR && projection.cubeRT.width !== state.cubemapResolution) projection.setResolution(state.cubemapResolution);
+
+  xrControllers.setVisible(inXR);
 
   cameraController.update();
   current?.update(dt, time);
