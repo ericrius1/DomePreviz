@@ -38,7 +38,7 @@ export class DomeProjection {
       generateMipmaps: false,
       type: THREE.HalfFloatType,
     });
-    this.cubeCamera = new THREE.CubeCamera(0.05, 200, this.cubeRT);
+    this.cubeCamera = new THREE.CubeCamera(0.05, 2000, this.cubeRT);
     this.cubeCamera.position.set(0, EYE_HEIGHT, 0);
 
     this.material = new THREE.ShaderMaterial({
