@@ -6,6 +6,7 @@ import { CameraController } from './app/CameraController';
 import { AudioBus } from './audio/AudioBus';
 import { createTemplate } from './templates/registry';
 import { TweakpaneUI } from './ui/TweakpaneUI';
+import { FisheyeInset } from './ui/FisheyeInset';
 import type { AppState, Template, TemplateId, CameraMode } from './types';
 
 const canvas = document.createElement('canvas');
@@ -21,6 +22,7 @@ const cameraController = new CameraController(camera, canvas);
 
 const projection = new DomeProjection(1024);
 const dome = new DomeScene(projection.material);
+const fisheye = new FisheyeInset(projection.cubeRT.texture);
 
 const bus = new AudioBus();
 dome.addSpeakers(bus.speakers);
@@ -119,6 +121,11 @@ function tick() {
   dome.dome.visible = true;
 
   renderer.render(dome.outerScene, camera);
+
+  fisheye.setCubeTexture(projection.cubeRT.texture);
+  fisheye.setVisible(state.showFisheyeInset);
+  fisheye.render(renderer);
+
   requestAnimationFrame(tick);
 }
 tick();

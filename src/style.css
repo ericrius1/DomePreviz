@@ -1,3 +1,16 @@
 :root { color-scheme: dark; font-family: system-ui, sans-serif; }
 html, body, #app { margin: 0; padding: 0; height: 100%; background: #0a0a0f; }
 #view { display: block; width: 100vw; height: 100vh; }
+
+#fisheye-frame {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  width: 256px;
+  height: 256px;
+  border: 1px solid #444;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5) inset;
+  pointer-events: none;
+  z-index: 5;
+}
