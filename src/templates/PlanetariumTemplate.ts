@@ -1,6 +1,12 @@
 import * as THREE from 'three';
+import { MeshBasicNodeMaterial } from 'three/webgpu';
+import * as TSL from 'three/tsl';
 import type { Template, AudioBusLike, TweakpaneSchema } from '../types';
 import { PlanetariumAudio } from '../audio/templates/PlanetariumAudio';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const T: any = TSL;
+const { Fn, uniform, attribute, vec3, vec4, float, sin } = T;
 
 interface Comet {
   line: THREE.Line;
@@ -15,7 +21,9 @@ export class PlanetariumTemplate implements Template {
   private group = new THREE.Group();
   private audio: PlanetariumAudio | null = null;
   private comets: Comet[] = [];
-  private starMaterial: THREE.ShaderMaterial | null = null;
+  private uTime = uniform(0);
+  private uTwinkle = uniform(1.0);
+  private stars: THREE.InstancedMesh | null = null;
 
   params = {
     starDensity: 2000,
@@ -27,55 +35,49 @@ export class PlanetariumTemplate implements Template {
     scene.background = new THREE.Color(0x02030a);
 
     const count = this.params.starDensity;
-    const pos = new Float32Array(count * 3);
-    const phase = new Float32Array(count);
-    const sz = new Float32Array(count);
+    const phaseArr = new Float32Array(count);
+    const starGeom = new THREE.OctahedronGeometry(1, 0);
+    starGeom.setAttribute(
+      'aPhase',
+      new THREE.InstancedBufferAttribute(phaseArr, 1),
+    );
+
+    const starMat = new MeshBasicNodeMaterial();
+    starMat.transparent = true;
+    starMat.depthWrite = false;
+    const { uTime, uTwinkle } = this;
+    starMat.colorNode = Fn(() => {
+      const phase = attribute('aPhase', 'float');
+      const b = float(0.6).add(float(0.4).mul(sin(uTime.mul(uTwinkle).add(phase))));
+      return vec4(vec3(b), float(1.0));
+    })();
+
+    this.stars = new THREE.InstancedMesh(starGeom, starMat, count);
+    this.stars.frustumCulled = false;
+    const m = new THREE.Matrix4();
+    const pos = new THREE.Vector3();
+    const rot = new THREE.Quaternion();
+    const scl = new THREE.Vector3();
     for (let i = 0; i < count; i++) {
       const u = Math.random();
       const v = Math.random();
       const theta = 2 * Math.PI * u;
       const phi = Math.acos(v);
       const r = 400;
-      pos[i * 3 + 0] = r * Math.sin(phi) * Math.cos(theta);
-      pos[i * 3 + 1] = r * Math.cos(phi);
-      pos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
-      phase[i] = Math.random() * Math.PI * 2;
-      sz[i] = 1 + Math.random() * 2.5;
+      pos.set(
+        r * Math.sin(phi) * Math.cos(theta),
+        r * Math.cos(phi),
+        r * Math.sin(phi) * Math.sin(theta),
+      );
+      const size = 1 + Math.random() * 2.5;
+      scl.set(size, size, size);
+      rot.set(0, 0, 0, 1);
+      m.compose(pos, rot, scl);
+      this.stars.setMatrixAt(i, m);
+      phaseArr[i] = Math.random() * Math.PI * 2;
     }
-    const geom = new THREE.BufferGeometry();
-    geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geom.setAttribute('aPhase', new THREE.BufferAttribute(phase, 1));
-    geom.setAttribute('aSize', new THREE.BufferAttribute(sz, 1));
-
-    this.starMaterial = new THREE.ShaderMaterial({
-      uniforms: { uTime: { value: 0 }, uTwinkle: { value: this.params.twinkleSpeed } },
-      vertexShader: /* glsl */ `
-        attribute float aPhase;
-        attribute float aSize;
-        uniform float uTime;
-        uniform float uTwinkle;
-        varying float vBrightness;
-        void main() {
-          vec4 mv = modelViewMatrix * vec4(position, 1.0);
-          gl_Position = projectionMatrix * mv;
-          gl_PointSize = aSize * (300.0 / -mv.z);
-          vBrightness = 0.6 + 0.4 * sin(uTime * uTwinkle + aPhase);
-        }
-      `,
-      fragmentShader: /* glsl */ `
-        varying float vBrightness;
-        void main() {
-          vec2 p = gl_PointCoord - 0.5;
-          float d = length(p);
-          float a = smoothstep(0.5, 0.0, d);
-          gl_FragColor = vec4(vec3(vBrightness), a);
-        }
-      `,
-      transparent: true,
-      depthWrite: false,
-    });
-    const stars = new THREE.Points(geom, this.starMaterial);
-    this.group.add(stars);
+    this.stars.instanceMatrix.needsUpdate = true;
+    this.group.add(this.stars);
 
     for (let i = 0; i < this.params.cometRate; i++) this.comets.push(this.spawnComet());
     this.comets.forEach((c) => { this.group.add(c.line); this.group.add(c.head); });
@@ -112,10 +114,8 @@ export class PlanetariumTemplate implements Template {
   }
 
   update(dt: number, time: number): void {
-    if (this.starMaterial) {
-      this.starMaterial.uniforms.uTime.value = time;
-      this.starMaterial.uniforms.uTwinkle.value = this.params.twinkleSpeed;
-    }
+    this.uTime.value = time;
+    this.uTwinkle.value = this.params.twinkleSpeed;
     for (let i = 0; i < this.comets.length; i++) {
       const c = this.comets[i];
       c.life += dt;
@@ -158,8 +158,7 @@ export class PlanetariumTemplate implements Template {
       else if (m) (m as THREE.Material).dispose();
     });
     this.comets = [];
-    this.starMaterial?.dispose();
-    this.starMaterial = null;
+    this.stars = null;
   }
 
   getParams(): TweakpaneSchema {

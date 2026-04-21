@@ -36,11 +36,12 @@ const domeCubeRT = new CubeRenderTarget(INITIAL_CUBE_RES, {
 const domeCubeCamera = new THREE.CubeCamera(0.05, 2000, domeCubeRT);
 domeCubeCamera.position.set(0, 0, 0);
 
-const domeMaterial = new DomeMaterial(domeCubeRT.texture);
+const domeCubeTex = domeCubeRT.texture as unknown as THREE.CubeTexture;
+const domeMaterial = new DomeMaterial(domeCubeTex);
 const dome = new DomeScene(domeMaterial);
 dome.outerScene.add(domeCubeCamera);
 
-const fisheye = new FisheyeInset(domeCubeRT.texture);
+const fisheye = new FisheyeInset(domeCubeTex);
 
 const xrDolly = new THREE.Group();
 xrDolly.position.set(0, 0, 0);

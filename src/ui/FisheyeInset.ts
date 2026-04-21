@@ -71,9 +71,14 @@ export class FisheyeInset {
     renderer.getViewport(prevViewport);
     const prevAutoClear = renderer.autoClear;
 
+    const size = new THREE.Vector2();
+    renderer.getSize(size);
+    const x = size.x - INSET_SIZE - INSET_MARGIN;
+    const y = INSET_MARGIN;
+
     renderer.setScissorTest(true);
-    renderer.setViewport(INSET_MARGIN, INSET_MARGIN, INSET_SIZE, INSET_SIZE);
-    renderer.setScissor(INSET_MARGIN, INSET_MARGIN, INSET_SIZE, INSET_SIZE);
+    renderer.setViewport(x, y, INSET_SIZE, INSET_SIZE);
+    renderer.setScissor(x, y, INSET_SIZE, INSET_SIZE);
     renderer.autoClear = false;
     renderer.clearDepth();
     renderer.render(this.scene, this.cam);
