@@ -5,7 +5,8 @@ import { DomeProjection } from './app/DomeProjection';
 import { CameraController } from './app/CameraController';
 import { AudioBus } from './audio/AudioBus';
 import { createTemplate } from './templates/registry';
-import type { Template, TemplateId } from './types';
+import { TweakpaneUI } from './ui/TweakpaneUI';
+import type { AppState, Template, TemplateId, CameraMode } from './types';
 
 const canvas = document.createElement('canvas');
 canvas.id = 'view';
@@ -23,6 +24,61 @@ const dome = new DomeScene(projection.material);
 
 const bus = new AudioBus();
 dome.addSpeakers(bus.speakers);
+
+const state: AppState = {
+  cameraMode: 'orbit',
+  templateId: 'planetarium',
+  domeOpacity: 0.55,
+  showFrustums: true,
+  showFisheyeInset: true,
+  cubemapResolution: 1024,
+  fov: 60,
+};
+
+let current: Template | null = null;
+let ui: TweakpaneUI | null = null;
+
+function setTemplate(id: TemplateId) {
+  if (current) current.dispose();
+  while (dome.templateScene.children.length) dome.templateScene.remove(dome.templateScene.children[0]);
+  current = createTemplate(id);
+  current.init(dome.templateScene, bus);
+  if (ui) ui.bindTemplateParams(current);
+}
+
+const presets: Record<1 | 2, { pos: THREE.Vector3; target: THREE.Vector3 } | null> = { 1: null, 2: null };
+
+ui = new TweakpaneUI(state, bus, projection, dome, {
+  onTemplateChange: (id) => setTemplate(id),
+  onCameraModeChange: (m: CameraMode) => cameraController.setMode(m),
+  onPresetSave: (slot) => {
+    presets[slot] = { pos: camera.position.clone(), target: new THREE.Vector3(0, 2, 0) };
+  },
+  onPresetRecall: (slot) => {
+    const p = presets[slot];
+    if (p) {
+      camera.position.copy(p.pos);
+      camera.lookAt(p.target);
+    }
+  },
+});
+
+setTemplate('planetarium');
+
+setInterval(() => {
+  if (camera.fov !== state.fov) {
+    camera.fov = state.fov;
+    camera.updateProjectionMatrix();
+  }
+}, 100);
+
+const resumeOnce = async () => {
+  await bus.resume();
+  document.removeEventListener('pointerdown', resumeOnce);
+  document.removeEventListener('keydown', resumeOnce);
+};
+document.addEventListener('pointerdown', resumeOnce);
+document.addEventListener('keydown', resumeOnce);
 
 function updateAudioListener() {
   const l = bus.context.listener;
@@ -42,28 +98,6 @@ function updateAudioListener() {
       .setOrientation?.(fwd.x, fwd.y, fwd.z, up.x, up.y, up.z);
   }
 }
-
-const resumeOnce = async () => {
-  await bus.resume();
-  document.removeEventListener('pointerdown', resumeOnce);
-  document.removeEventListener('keydown', resumeOnce);
-};
-document.addEventListener('pointerdown', resumeOnce);
-document.addEventListener('keydown', resumeOnce);
-
-let current: Template | null = null;
-function setTemplate(id: TemplateId) {
-  if (current) current.dispose();
-  while (dome.templateScene.children.length) dome.templateScene.remove(dome.templateScene.children[0]);
-  current = createTemplate(id);
-  current.init(dome.templateScene, bus);
-}
-setTemplate('planetarium');
-
-window.addEventListener('keydown', (e) => {
-  if (e.key === '1') cameraController.setMode('orbit');
-  if (e.key === '2') cameraController.setMode('first-person');
-});
 
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
