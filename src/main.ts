@@ -3,8 +3,9 @@ import * as THREE from 'three';
 import { DomeScene, EYE_HEIGHT } from './app/DomeScene';
 import { DomeProjection } from './app/DomeProjection';
 import { CameraController } from './app/CameraController';
+import { AudioBus } from './audio/AudioBus';
 import { createTemplate } from './templates/registry';
-import type { AudioBusLike, Template, TemplateId } from './types';
+import type { Template, TemplateId } from './types';
 
 const canvas = document.createElement('canvas');
 canvas.id = 'view';
@@ -20,16 +21,35 @@ const cameraController = new CameraController(camera, canvas);
 const projection = new DomeProjection(1024);
 const dome = new DomeScene(projection.material);
 
-const audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-const placeholderMaster = audioContext.createGain();
-const placeholderAnalyser = audioContext.createAnalyser();
-placeholderMaster.connect(placeholderAnalyser);
-const bus: AudioBusLike = {
-  context: audioContext,
-  master: placeholderMaster,
-  analyser: placeholderAnalyser,
-  speakers: [],
+const bus = new AudioBus();
+dome.addSpeakers(bus.speakers);
+
+function updateAudioListener() {
+  const l = bus.context.listener;
+  const p = camera.position;
+  if (l.positionX) {
+    l.positionX.value = p.x; l.positionY.value = p.y; l.positionZ.value = p.z;
+  } else {
+    (l as unknown as { setPosition: (x: number, y: number, z: number) => void }).setPosition?.(p.x, p.y, p.z);
+  }
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+  if (l.forwardX) {
+    l.forwardX.value = fwd.x; l.forwardY.value = fwd.y; l.forwardZ.value = fwd.z;
+    l.upX.value = up.x; l.upY.value = up.y; l.upZ.value = up.z;
+  } else {
+    (l as unknown as { setOrientation: (fx: number, fy: number, fz: number, ux: number, uy: number, uz: number) => void })
+      .setOrientation?.(fwd.x, fwd.y, fwd.z, up.x, up.y, up.z);
+  }
+}
+
+const resumeOnce = async () => {
+  await bus.resume();
+  document.removeEventListener('pointerdown', resumeOnce);
+  document.removeEventListener('keydown', resumeOnce);
 };
+document.addEventListener('pointerdown', resumeOnce);
+document.addEventListener('keydown', resumeOnce);
 
 let current: Template | null = null;
 function setTemplate(id: TemplateId) {
@@ -40,7 +60,6 @@ function setTemplate(id: TemplateId) {
 }
 setTemplate('planetarium');
 
-// Dev-mode: 1 = orbit, 2 = first-person. Will be replaced by Tweakpane in Task 11.
 window.addEventListener('keydown', (e) => {
   if (e.key === '1') cameraController.setMode('orbit');
   if (e.key === '2') cameraController.setMode('first-person');
@@ -58,6 +77,8 @@ function tick() {
   const time = clock.elapsedTime;
   cameraController.update();
   current?.update(dt, time);
+  updateAudioListener();
+  bus.speakers.forEach((s) => s.updateVisual());
 
   dome.dome.visible = false;
   projection.render(renderer, dome.templateScene);

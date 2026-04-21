@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { Speaker } from '../audio/Speaker';
 
 export const DOME_RADIUS = 10;
 export const EYE_HEIGHT = 1.6;
@@ -9,6 +10,7 @@ export class DomeScene {
   dome: THREE.Mesh;
   floor: THREE.Mesh;
   grid: THREE.GridHelper;
+  speakerGroup = new THREE.Group();
 
   constructor(domeMaterial: THREE.Material) {
     this.outerScene.background = new THREE.Color(0x0a0a0f);
@@ -29,5 +31,23 @@ export class DomeScene {
     (this.grid.material as THREE.Material).opacity = 0.4;
     (this.grid.material as THREE.Material).transparent = true;
     this.outerScene.add(this.grid);
+
+    this.outerScene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dl = new THREE.DirectionalLight(0xffffff, 0.5);
+    dl.position.set(5, 10, 5);
+    this.outerScene.add(dl);
+
+    this.outerScene.add(this.speakerGroup);
+  }
+
+  addSpeakers(speakers: Speaker[]) {
+    speakers.forEach((s) => this.speakerGroup.add(s.group));
+  }
+
+  setFrustumsVisible(v: boolean) {
+    this.speakerGroup.traverse((o) => {
+      const g = (o as THREE.Mesh).geometry;
+      if (g && g.type === 'ConeGeometry') o.visible = v;
+    });
   }
 }
