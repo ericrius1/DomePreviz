@@ -1,7 +1,8 @@
 import type * as THREE from 'three';
+import type { FeatureSnapshot } from './audio/AudioFeatures';
 
 export type CameraMode = 'orbit' | 'first-person' | 'xr-view';
-export type TemplateId = 'planetarium' | 'terrain' | 'musicviz' | 'video360';
+export type TemplateId = 'planetarium' | 'terrain' | 'aurora' | 'video360';
 
 export interface TweakpaneSchema {
   [key: string]: unknown;
@@ -11,6 +12,7 @@ export interface AudioBusLike {
   context: AudioContext;
   master: GainNode;
   analyser: AnalyserNode;
+  features: FeatureSnapshot;
   speakers: { input(): AudioNode; index: number; color: number }[];
 }
 
@@ -22,12 +24,17 @@ export interface Template {
   getParams(): TweakpaneSchema;
 }
 
+export type CubeResolution = 256 | 512 | 1024 | 2048;
+
 export interface AppState {
   cameraMode: CameraMode;
   templateId: TemplateId;
   domeOpacity: number;
-  showFrustums: boolean;
   showFisheyeInset: boolean;
-  cubemapResolution: 256 | 512 | 1024 | 2048;
+  domeCubeResolution: CubeResolution;
   fov: number;
+}
+
+export interface TemplateAudio {
+  dispose(): void;
 }

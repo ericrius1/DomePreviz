@@ -1,15 +1,14 @@
 import { Pane } from 'tweakpane';
 import type { FolderApi, BindingApi } from '@tweakpane/core';
-import type { AppState, Template, TemplateId, CameraMode } from '../types';
-import type { AudioBus } from '../audio/AudioBus';
-import type { DomeProjection } from '../app/DomeProjection';
-import type { DomeScene } from '../app/DomeScene';
+import type { AppState, Template, TemplateId, CameraMode, CubeResolution } from '../types';
 
 export interface TweakpaneUIActions {
   onTemplateChange: (id: TemplateId) => void;
   onCameraModeChange: (mode: CameraMode) => void;
   onPresetSave: (slot: 1 | 2) => void;
   onPresetRecall: (slot: 1 | 2) => void;
+  onDomeOpacityChange: (v: number) => void;
+  onCubeResolutionChange: (v: CubeResolution) => void;
 }
 
 export class TweakpaneUI {
@@ -17,22 +16,15 @@ export class TweakpaneUI {
   private templateFolder: FolderApi;
   private currentTemplateBindings: BindingApi[] = [];
 
-  constructor(
-    appState: AppState,
-    bus: AudioBus,
-    projection: DomeProjection,
-    dome: DomeScene,
-    actions: TweakpaneUIActions,
-  ) {
+  constructor(appState: AppState, actions: TweakpaneUIActions) {
     this.pane = new Pane({ title: 'Dome Previs', expanded: true });
 
     const cfg = this.pane.addFolder({ title: 'Config' });
-    cfg.addBinding(appState, 'cubemapResolution', {
+    cfg.addBinding(appState, 'domeCubeResolution', {
       options: { '256': 256, '512': 512, '1024': 1024, '2048': 2048 },
-    }).on('change', (ev) => projection.setResolution(ev.value as number));
+    }).on('change', (ev) => actions.onCubeResolutionChange(ev.value as CubeResolution));
     cfg.addBinding(appState, 'domeOpacity', { min: 0.0, max: 1.0, step: 0.01 })
-      .on('change', (ev) => projection.setOpacity(ev.value as number));
-    cfg.addBinding(appState, 'showFrustums').on('change', (ev) => dome.setFrustumsVisible(ev.value as boolean));
+      .on('change', (ev) => actions.onDomeOpacityChange(ev.value as number));
     cfg.addBinding(appState, 'showFisheyeInset');
 
     this.templateFolder = this.pane.addFolder({ title: 'Template' });
@@ -40,33 +32,10 @@ export class TweakpaneUI {
       options: {
         Planetarium: 'planetarium',
         Terrain: 'terrain',
-        'Music Viz': 'musicviz',
+        Aurora: 'aurora',
         '360 Video': 'video360',
       },
     }).on('change', (ev) => actions.onTemplateChange(ev.value as TemplateId));
-
-    const spk = this.pane.addFolder({ title: 'Speakers' });
-    bus.speakers.forEach((s, i) => {
-      const row = spk.addFolder({ title: `Speaker ${i + 1}`, expanded: false });
-      const rowState = { gain: 1, mute: false, azimuth: (i * 360) / bus.speakers.length };
-      row.addBinding(rowState, 'gain', { min: 0, max: 2, step: 0.01 })
-        .on('change', (ev) => s.setGain(ev.value as number));
-      row.addBinding(rowState, 'mute')
-        .on('change', (ev) => s.setMuted(ev.value as boolean));
-      row.addBinding(rowState, 'azimuth', { min: 0, max: 360, step: 1 })
-        .on('change', (ev) => {
-          const az = ((ev.value as number) * Math.PI) / 180;
-          const x = Math.cos(az) * 10;
-          const z = Math.sin(az) * 10;
-          s.panner.positionX.value = x;
-          s.panner.positionZ.value = z;
-          s.box.position.set(x, s.box.position.y, z);
-          s.frustum.position.set(x, s.frustum.position.y, z);
-          s.frustum.rotation.set(0, 0, 0);
-          s.frustum.lookAt(0, 3, 0);
-          s.frustum.rotateX(-Math.PI / 2);
-        });
-    });
 
     const cam = this.pane.addFolder({ title: 'Camera' });
     cam.addBinding(appState, 'cameraMode', {

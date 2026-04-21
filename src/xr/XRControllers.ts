@@ -9,7 +9,7 @@ export interface XRActionHandlers {
 const TEMPLATE_LABELS: { id: TemplateId; color: number }[] = [
   { id: 'planetarium', color: 0x4466ff },
   { id: 'terrain',     color: 0xff8844 },
-  { id: 'musicviz',    color: 0xff44aa },
+  { id: 'aurora',      color: 0x44ff99 },
   { id: 'video360',    color: 0x44ffaa },
 ];
 
@@ -25,7 +25,7 @@ export class XRControllers {
   private buttons: { mesh: THREE.Mesh; onActivate: () => void }[] = [];
   private raycaster = new THREE.Raycaster();
 
-  constructor(renderer: THREE.WebGLRenderer, private actions: XRActionHandlers) {
+  constructor(renderer: { xr: { getController(index: number): THREE.XRTargetRaySpace } }, private actions: XRActionHandlers) {
     for (let i = 0; i < 2; i++) {
       const c = renderer.xr.getController(i);
       const geom = new THREE.BufferGeometry();

@@ -1,79 +1,38 @@
 import * as THREE from 'three';
-import { EYE_HEIGHT } from './DomeScene';
+import { NodeMaterial } from 'three/webgpu';
+import * as TSL from 'three/tsl';
 
-const vertexShader = /* glsl */ `
-  varying vec3 vWorldPos;
-  varying vec3 vNormal;
-  void main() {
-    vec4 wp = modelMatrix * vec4(position, 1.0);
-    vWorldPos = wp.xyz;
-    vNormal = normalize(mat3(modelMatrix) * normal);
-    gl_Position = projectionMatrix * viewMatrix * wp;
-  }
-`;
+// TSL types are strict about float/vec coercions; the runtime is permissive.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const T: any = TSL;
+const {
+  Fn, uniform, vec4, float, mix, step, dot, normalize,
+  positionWorld, normalWorld, cameraPosition, cubeTexture,
+} = T;
 
-const fragmentShader = /* glsl */ `
-  uniform samplerCube uCube;
-  uniform vec3 uCenter;
-  uniform float uOpacity;
-  varying vec3 vWorldPos;
-  varying vec3 vNormal;
-  void main() {
-    vec3 dir = normalize(vWorldPos - uCenter);
-    vec3 color = textureCube(uCube, dir).rgb;
-    float facing = dot(normalize(vNormal), normalize(cameraPosition - vWorldPos));
-    float exterior = step(facing, 0.0);
-    float mul = mix(1.0, uOpacity, exterior);
-    gl_FragColor = vec4(color * mul, 1.0);
-  }
-`;
+export class DomeMaterial extends NodeMaterial {
+  uOpacity = uniform(0.55);
 
-export class DomeProjection {
-  cubeRT: THREE.WebGLCubeRenderTarget;
-  cubeCamera: THREE.CubeCamera;
-  material: THREE.ShaderMaterial;
+  constructor(cubeTex: THREE.CubeTexture) {
+    super();
+    this.side = THREE.DoubleSide;
 
-  constructor(resolution: number) {
-    this.cubeRT = new THREE.WebGLCubeRenderTarget(resolution, {
-      generateMipmaps: false,
-      type: THREE.HalfFloatType,
-    });
-    this.cubeCamera = new THREE.CubeCamera(0.05, 2000, this.cubeRT);
-    this.cubeCamera.position.set(0, EYE_HEIGHT, 0);
+    const { uOpacity } = this;
 
-    this.material = new THREE.ShaderMaterial({
-      vertexShader,
-      fragmentShader,
-      uniforms: {
-        uCube: { value: this.cubeRT.texture },
-        uCenter: { value: new THREE.Vector3(0, EYE_HEIGHT, 0) },
-        uOpacity: { value: 0.55 },
-      },
-      side: THREE.DoubleSide,
-    });
+    this.colorNode = Fn(() => {
+      const dir = normalize(positionWorld);
+      const col = cubeTexture(cubeTex, dir).rgb;
+
+      const view = normalize(cameraPosition.sub(positionWorld));
+      const facing = dot(normalize(normalWorld), view);
+      const exterior = step(facing, float(0.0));
+      const mul = mix(float(1.0), uOpacity, exterior);
+
+      return vec4(col.mul(mul), 1.0);
+    })();
   }
 
   setOpacity(v: number) {
-    this.material.uniforms.uOpacity.value = v;
-  }
-
-  setResolution(resolution: number) {
-    const old = this.cubeRT;
-    this.cubeRT = new THREE.WebGLCubeRenderTarget(resolution, {
-      generateMipmaps: false,
-      type: THREE.HalfFloatType,
-    });
-    this.cubeCamera.renderTarget = this.cubeRT;
-    this.material.uniforms.uCube.value = this.cubeRT.texture;
-    old.dispose();
-  }
-
-  render(renderer: THREE.WebGLRenderer, templateScene: THREE.Scene) {
-    this.cubeCamera.update(renderer, templateScene);
-  }
-
-  dispose() {
-    this.cubeRT.dispose();
-    this.material.dispose();
+    this.uOpacity.value = v;
   }
 }

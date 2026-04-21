@@ -1,34 +1,46 @@
 import './style.css';
 import * as THREE from 'three';
+import { WebGPURenderer, CubeRenderTarget } from 'three/webgpu';
 import { VRButton } from 'three/examples/jsm/webxr/VRButton.js';
 import { DomeScene, EYE_HEIGHT } from './app/DomeScene';
-import { DomeProjection } from './app/DomeProjection';
+import { DomeMaterial } from './app/DomeProjection';
 import { CameraController } from './app/CameraController';
 import { AudioBus } from './audio/AudioBus';
 import { createTemplate } from './templates/registry';
 import { TweakpaneUI } from './ui/TweakpaneUI';
 import { FisheyeInset } from './ui/FisheyeInset';
 import { XRControllers } from './xr/XRControllers';
-import type { AppState, Template, TemplateId, CameraMode } from './types';
+import type { AppState, Template, TemplateId, CameraMode, CubeResolution } from './types';
 
 const canvas = document.createElement('canvas');
 canvas.id = 'view';
 document.querySelector<HTMLDivElement>('#app')!.appendChild(canvas);
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new WebGPURenderer({ canvas, antialias: true, forceWebGL: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
-const vrBtn = VRButton.createButton(renderer);
+await renderer.init();
+
+const vrBtn = VRButton.createButton(renderer as unknown as THREE.WebGLRenderer);
 vrBtn.style.zIndex = '20';
 document.body.appendChild(vrBtn);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.05, 1000);
 const cameraController = new CameraController(camera, canvas);
 
-const projection = new DomeProjection(1024);
-const dome = new DomeScene(projection.material);
-const fisheye = new FisheyeInset(projection.cubeRT.texture);
+const INITIAL_CUBE_RES = 1024;
+const domeCubeRT = new CubeRenderTarget(INITIAL_CUBE_RES, {
+  generateMipmaps: false,
+});
+const domeCubeCamera = new THREE.CubeCamera(0.05, 2000, domeCubeRT);
+domeCubeCamera.position.set(0, 0, 0);
+
+const domeMaterial = new DomeMaterial(domeCubeRT.texture);
+const dome = new DomeScene(domeMaterial);
+dome.outerScene.add(domeCubeCamera);
+
+const fisheye = new FisheyeInset(domeCubeRT.texture);
 
 const xrDolly = new THREE.Group();
 xrDolly.position.set(0, 0, 0);
@@ -36,15 +48,13 @@ dome.outerScene.add(xrDolly);
 xrDolly.add(camera);
 
 const bus = new AudioBus();
-dome.addSpeakers(bus.speakers);
 
 const state: AppState = {
   cameraMode: 'orbit',
   templateId: 'planetarium',
   domeOpacity: 0.55,
-  showFrustums: true,
   showFisheyeInset: true,
-  cubemapResolution: 1024,
+  domeCubeResolution: INITIAL_CUBE_RES,
   fov: 60,
 };
 
@@ -59,9 +69,15 @@ function setTemplate(id: TemplateId) {
   if (ui) ui.bindTemplateParams(current);
 }
 
+function setCubeResolution(res: CubeResolution) {
+  if (res === state.domeCubeResolution) return;
+  state.domeCubeResolution = res;
+  domeCubeRT.setSize(res, res);
+}
+
 const presets: Record<1 | 2, { pos: THREE.Vector3; target: THREE.Vector3 } | null> = { 1: null, 2: null };
 
-ui = new TweakpaneUI(state, bus, projection, dome, {
+ui = new TweakpaneUI(state, {
   onTemplateChange: (id) => setTemplate(id),
   onCameraModeChange: (m: CameraMode) => cameraController.setMode(m),
   onPresetSave: (slot) => {
@@ -74,6 +90,8 @@ ui = new TweakpaneUI(state, bus, projection, dome, {
       camera.lookAt(p.target);
     }
   },
+  onDomeOpacityChange: (v) => domeMaterial.setOpacity(v),
+  onCubeResolutionChange: (v) => setCubeResolution(v),
 });
 
 setTemplate('planetarium');
@@ -107,6 +125,17 @@ const resumeOnce = async () => {
 document.addEventListener('pointerdown', resumeOnce);
 document.addEventListener('keydown', resumeOnce);
 
+const CAM_MODES: CameraMode[] = ['orbit', 'first-person', 'xr-view'];
+document.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'c' && ev.key !== 'C') return;
+  const t = ev.target as HTMLElement | null;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  const next = CAM_MODES[(CAM_MODES.indexOf(state.cameraMode) + 1) % CAM_MODES.length];
+  cameraController.setMode(next);
+  state.cameraMode = next;
+  ui?.pane.refresh();
+});
+
 function updateAudioListener() {
   const l = bus.context.listener;
   const p = camera.position;
@@ -132,36 +161,32 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
 });
 
-const clock = new THREE.Clock();
+const timer = new THREE.Timer();
+timer.connect(document);
 function tick() {
-  const dt = clock.getDelta();
-  const time = clock.elapsedTime;
+  timer.update();
+  const dt = timer.getDelta();
+  const time = timer.getElapsed();
   const inXR = renderer.xr.isPresenting;
-
-  if (inXR && projection.cubeRT.width !== 512) projection.setResolution(512);
-  if (!inXR && projection.cubeRT.width !== state.cubemapResolution) projection.setResolution(state.cubemapResolution);
 
   xrControllers.setVisible(inXR);
 
-  cameraController.update();
+  cameraController.update(dt);
+  bus.update(dt);
   current?.update(dt, time);
   updateAudioListener();
-  bus.speakers.forEach((s) => s.updateVisual());
 
-  dome.dome.visible = false;
-  projection.render(renderer, dome.templateScene);
-  dome.dome.visible = true;
+  // One cube capture of the template scene feeds both the dome surface and the fisheye inset.
+  domeCubeCamera.update(renderer as unknown as THREE.WebGLRenderer, dome.templateScene);
 
   renderer.render(dome.outerScene, camera);
 
-  if (!inXR) {
-    fisheye.setCubeTexture(projection.cubeRT.texture);
-    fisheye.setVisible(state.showFisheyeInset);
-    fisheye.render(renderer);
+  const wantsFisheye = !inXR && state.showFisheyeInset;
+  if (wantsFisheye) {
+    fisheye.setVisible(true);
+    fisheye.render(renderer as unknown as THREE.WebGLRenderer);
   } else {
     fisheye.setVisible(false);
   }
 }
 renderer.setAnimationLoop(tick);
-
-void EYE_HEIGHT;
