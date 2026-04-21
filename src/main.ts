@@ -1,5 +1,6 @@
 import './style.css';
 import * as THREE from 'three';
+import { VRButton } from 'three/examples/jsm/webxr/VRButton.js';
 import { DomeScene, EYE_HEIGHT } from './app/DomeScene';
 import { DomeProjection } from './app/DomeProjection';
 import { CameraController } from './app/CameraController';
@@ -16,6 +17,10 @@ document.querySelector<HTMLDivElement>('#app')!.appendChild(canvas);
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.xr.enabled = true;
+const vrBtn = VRButton.createButton(renderer);
+vrBtn.style.zIndex = '20';
+document.body.appendChild(vrBtn);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.05, 1000);
 const cameraController = new CameraController(camera, canvas);
@@ -23,6 +28,11 @@ const cameraController = new CameraController(camera, canvas);
 const projection = new DomeProjection(1024);
 const dome = new DomeScene(projection.material);
 const fisheye = new FisheyeInset(projection.cubeRT.texture);
+
+const xrDolly = new THREE.Group();
+xrDolly.position.set(0, 0, 0);
+dome.outerScene.add(xrDolly);
+xrDolly.add(camera);
 
 const bus = new AudioBus();
 dome.addSpeakers(bus.speakers);
@@ -111,6 +121,11 @@ const clock = new THREE.Clock();
 function tick() {
   const dt = clock.getDelta();
   const time = clock.elapsedTime;
+  const inXR = renderer.xr.isPresenting;
+
+  if (inXR && projection.cubeRT.width !== 512) projection.setResolution(512);
+  if (!inXR && projection.cubeRT.width !== state.cubemapResolution) projection.setResolution(state.cubemapResolution);
+
   cameraController.update();
   current?.update(dt, time);
   updateAudioListener();
@@ -122,12 +137,14 @@ function tick() {
 
   renderer.render(dome.outerScene, camera);
 
-  fisheye.setCubeTexture(projection.cubeRT.texture);
-  fisheye.setVisible(state.showFisheyeInset);
-  fisheye.render(renderer);
-
-  requestAnimationFrame(tick);
+  if (!inXR) {
+    fisheye.setCubeTexture(projection.cubeRT.texture);
+    fisheye.setVisible(state.showFisheyeInset);
+    fisheye.render(renderer);
+  } else {
+    fisheye.setVisible(false);
+  }
 }
-tick();
+renderer.setAnimationLoop(tick);
 
 void EYE_HEIGHT;
