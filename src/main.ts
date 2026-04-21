@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DomeScene, EYE_HEIGHT } from './app/DomeScene';
 import { DomeProjection } from './app/DomeProjection';
+import { createTemplate } from './templates/registry';
+import type { AudioBusLike, Template, TemplateId } from './types';
 
 const canvas = document.createElement('canvas');
 canvas.id = 'view';
@@ -24,25 +26,25 @@ controls.maxPolarAngle = Math.PI / 2 - 0.05;
 const projection = new DomeProjection(1024);
 const dome = new DomeScene(projection.material);
 
-// Temporary test content so we can see the projection working before real templates land.
-{
-  const s = dome.templateScene;
-  s.background = new THREE.Color(0x111133);
-  s.add(new THREE.AmbientLight(0xffffff, 0.6));
-  const dl = new THREE.DirectionalLight(0xffffff, 0.8);
-  dl.position.set(5, 10, 5);
-  s.add(dl);
-  const colors = [0xff4466, 0x44ff66, 0x4466ff, 0xffdd44, 0xff44ff, 0x44ffff];
-  colors.forEach((c, i) => {
-    const m = new THREE.Mesh(
-      new THREE.BoxGeometry(1.5, 1.5, 1.5),
-      new THREE.MeshStandardMaterial({ color: c }),
-    );
-    const a = (i / colors.length) * Math.PI * 2;
-    m.position.set(Math.cos(a) * 4, 1 + Math.sin(a) * 0.5, Math.sin(a) * 4);
-    s.add(m);
-  });
+const audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+const placeholderMaster = audioContext.createGain();
+const placeholderAnalyser = audioContext.createAnalyser();
+placeholderMaster.connect(placeholderAnalyser);
+const bus: AudioBusLike = {
+  context: audioContext,
+  master: placeholderMaster,
+  analyser: placeholderAnalyser,
+  speakers: [],
+};
+
+let current: Template | null = null;
+function setTemplate(id: TemplateId) {
+  if (current) current.dispose();
+  while (dome.templateScene.children.length) dome.templateScene.remove(dome.templateScene.children[0]);
+  current = createTemplate(id);
+  current.init(dome.templateScene, bus);
 }
+setTemplate('planetarium');
 
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -53,8 +55,9 @@ window.addEventListener('resize', () => {
 const clock = new THREE.Clock();
 function tick() {
   const dt = clock.getDelta();
-  void dt;
+  const time = clock.elapsedTime;
   controls.update();
+  current?.update(dt, time);
 
   dome.dome.visible = false;
   projection.render(renderer, dome.templateScene);
