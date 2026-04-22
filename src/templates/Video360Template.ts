@@ -2,6 +2,50 @@ import * as THREE from 'three';
 import type { Template, AudioBusLike, TweakpaneSchema } from '../types';
 import { Video360Audio } from '../audio/templates/Video360Audio';
 
+const DB_NAME = 'dome-previz';
+const STORE_NAME = 'video360';
+const KEY = 'last-file';
+
+interface StoredFile { blob: Blob; name: string; type: string; }
+
+function openDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveStoredFile(file: File): Promise<void> {
+  const db = await openDB();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).put({ blob: file, name: file.name, type: file.type } as StoredFile, KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } finally { db.close(); }
+}
+
+async function loadStoredFile(): Promise<File | null> {
+  const db = await openDB();
+  try {
+    const stored = await new Promise<StoredFile | null>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const req = tx.objectStore(STORE_NAME).get(KEY);
+      req.onsuccess = () => resolve((req.result as StoredFile | undefined) ?? null);
+      req.onerror = () => reject(req.error);
+    });
+    if (!stored) return null;
+    return new File([stored.blob], stored.name, { type: stored.type });
+  } finally { db.close(); }
+}
+
 export class Video360Template implements Template {
   id = 'video360' as const;
   private group = new THREE.Group();
@@ -13,11 +57,17 @@ export class Video360Template implements Template {
   private sphere: THREE.Mesh | null = null;
   private _bus: AudioBusLike | null = null;
   private dropzone: HTMLDivElement | null = null;
+  private disposed = false;
+
+  // Set by main.ts to route the loaded equirect texture directly into the dome material,
+  // bypassing the cube-map roundtrip that otherwise produces visible face-boundary seams.
+  onEquirectSource?: (tex: THREE.Texture | null) => void;
 
   params = {
     play: true,
     loop: true,
     fileLabel: '(none loaded)',
+    sourceResolution: '(none)',
   };
 
   constructor() {
@@ -59,6 +109,10 @@ export class Video360Template implements Template {
     window.addEventListener('dragover', this.onDragOver);
     window.addEventListener('dragleave', this.onDragLeave);
     window.addEventListener('drop', this.onDrop);
+
+    loadStoredFile()
+      .then((file) => { if (file && !this.disposed) this.loadFile(file); })
+      .catch(() => { /* no cached file */ });
   }
 
   loadFile(file: File) {
@@ -79,6 +133,9 @@ export class Video360Template implements Template {
     this.video.addEventListener('loadeddata', () => {
       if (this._bus && this.audio) this.audio.attachVideo(this.video);
       if (this.params.play) this.video.play().catch(() => { /* autoplay blocked */ });
+      this.params.sourceResolution = `${this.video.videoWidth}×${this.video.videoHeight}`;
+      if (this.videoTexture) this.onEquirectSource?.(this.videoTexture);
+      saveStoredFile(file).catch(() => { /* persistence best-effort */ });
     }, { once: true });
   }
 
@@ -102,8 +159,11 @@ export class Video360Template implements Template {
       }
       if (!this.video.paused) this.video.pause();
       this.params.fileLabel = file.name;
+      this.params.sourceResolution = `${img.width}×${img.height}`;
       if (this.dropzone) this.dropzone.style.display = 'none';
+      this.onEquirectSource?.(tex);
       URL.revokeObjectURL(url);
+      saveStoredFile(file).catch(() => { /* persistence best-effort */ });
     };
     img.onerror = () => URL.revokeObjectURL(url);
     img.src = url;
@@ -140,6 +200,8 @@ export class Video360Template implements Template {
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.onEquirectSource?.(null);
     window.removeEventListener('dragover', this.onDragOver);
     window.removeEventListener('dragleave', this.onDragLeave);
     window.removeEventListener('drop', this.onDrop);

@@ -3,10 +3,11 @@ import * as THREE from 'three';
 import { WebGPURenderer, CubeRenderTarget } from 'three/webgpu';
 import { VRButton } from 'three/examples/jsm/webxr/VRButton.js';
 import { DomeScene, EYE_HEIGHT } from './app/DomeScene';
-import { DomeMaterial } from './app/DomeProjection';
+import { DomeMaterial, DomeMaterialEquirect } from './app/DomeProjection';
 import { CameraController } from './app/CameraController';
 import { AudioBus } from './audio/AudioBus';
 import { createTemplate } from './templates/registry';
+import { Video360Template } from './templates/Video360Template';
 import { TweakpaneUI } from './ui/TweakpaneUI';
 import { FisheyeInset } from './ui/FisheyeInset';
 import { XRControllers } from './xr/XRControllers';
@@ -26,7 +27,7 @@ const vrBtn = VRButton.createButton(renderer as unknown as THREE.WebGLRenderer);
 vrBtn.style.zIndex = '20';
 document.body.appendChild(vrBtn);
 
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.05, 1000);
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 1000);
 const cameraController = new CameraController(camera, canvas);
 
 const INITIAL_CUBE_RES = 1024;
@@ -61,13 +62,41 @@ const state: AppState = {
 
 let current: Template | null = null;
 let ui: TweakpaneUI | null = null;
+let domeMaterialEquirect: DomeMaterialEquirect | null = null;
+
+function setEquirectSource(tex: THREE.Texture | null) {
+  if (tex) {
+    domeMaterialEquirect?.dispose();
+    domeMaterialEquirect = new DomeMaterialEquirect(tex);
+    domeMaterialEquirect.setProjectionMode(state.projectionMode);
+    dome.dome.material = domeMaterialEquirect;
+    fisheye.setEquirectSource(tex);
+  } else {
+    dome.dome.material = domeMaterial;
+    fisheye.setEquirectSource(null);
+    domeMaterialEquirect?.dispose();
+    domeMaterialEquirect = null;
+  }
+}
 
 function setTemplate(id: TemplateId) {
   if (current) current.dispose();
   while (dome.templateScene.children.length) dome.templateScene.remove(dome.templateScene.children[0]);
   current = createTemplate(id);
+  if (current instanceof Video360Template) {
+    current.onEquirectSource = (tex) => setEquirectSource(tex);
+  } else {
+    setEquirectSource(null);
+  }
   current.init(dome.templateScene, bus);
   if (ui) ui.bindTemplateParams(current);
+}
+
+function setProjectionMode(m: ProjectionMode) {
+  state.projectionMode = m;
+  domeMaterial.setProjectionMode(m);
+  domeMaterialEquirect?.setProjectionMode(m);
+  fisheye.setProjectionMode(m);
 }
 
 function setCubeResolution(res: CubeResolution) {
@@ -91,7 +120,7 @@ ui = new TweakpaneUI(state, {
       camera.lookAt(p.target);
     }
   },
-  onProjectionModeChange: (m) => domeMaterial.setProjectionMode(m),
+  onProjectionModeChange: (m) => setProjectionMode(m),
   onCubeResolutionChange: (v) => setCubeResolution(v),
 });
 
@@ -137,8 +166,7 @@ document.addEventListener('keydown', (ev) => {
     ui?.pane.refresh();
   } else if (ev.key === 'p' || ev.key === 'P') {
     const next: ProjectionMode = state.projectionMode === 'hemisphere' ? 'fulldome' : 'hemisphere';
-    domeMaterial.setProjectionMode(next);
-    state.projectionMode = next;
+    setProjectionMode(next);
     ui?.pane.refresh();
   }
 });
