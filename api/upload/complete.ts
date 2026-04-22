@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { CompleteMultipartUploadCommand, AbortMultipartUploadCommand } from '@aws-sdk/client-s3';
-import { r2Client, r2Config } from '../_r2';
+import { r2Client, r2Config } from '../_r2.js';
 
 interface CompleteBody {
   key: string;

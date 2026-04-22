@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { ListObjectsV2Command } from '@aws-sdk/client-s3';
-import { r2Client, r2Config, extKind } from './_r2';
+import { r2Client, r2Config, extKind } from './_r2.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {

@@ -15,7 +15,7 @@ import {
   ALLOWED_CONTENT_TYPE,
   timestampPrefix,
   shortId,
-} from '../_r2';
+} from '../_r2.js';
 
 interface InitBody {
   size: number;
