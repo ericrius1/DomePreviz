@@ -10,7 +10,7 @@ import { Video360Template } from './templates/Video360Template';
 import { TweakpaneUI } from './ui/TweakpaneUI';
 import { FisheyeInset } from './ui/FisheyeInset';
 import { XRControllers } from './xr/XRControllers';
-import { mountShareUI } from './share/shareUI';
+import { createUploadUI } from './share/shareUI';
 import type { AppState, CameraMode, CubeResolution, ProjectionMode } from './types';
 
 const shareIdMatch = window.location.pathname.match(/^\/v\/([a-zA-Z0-9_-]+)$/);
@@ -123,7 +123,8 @@ ui = new TweakpaneUI(state, {
 ui.bindTemplateParams(template);
 
 if (!viewerMode) {
-  mountShareUI(ui, () => template.currentFile);
+  const uploadUI = createUploadUI();
+  template.onFileLoaded = (file) => uploadUI.startUpload(file);
 }
 
 setProjectionMode(state.projectionMode);

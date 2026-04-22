@@ -1,11 +1,7 @@
-const PART_SIZE = 100 * 1024 * 1024;
-const MAX_CONCURRENT = 4;
-const MAX_PART_RETRIES = 3;
-
 export interface UploadProgress {
   uploaded: number;
   total: number;
-  stage: 'init' | 'parts' | 'complete' | 'done' | 'error';
+  stage: 'init' | 'uploading' | 'done' | 'error';
   message?: string;
 }
 
@@ -14,94 +10,49 @@ export interface UploadResult {
   shortid: string;
 }
 
-interface InitResponse {
+interface UploadInitResponse {
   shortid: string;
   key: string;
-  uploadId: string;
-  partUrls: string[];
+  putUrl: string;
+  shareUrl: string;
 }
 
 export async function shareUpload(
   file: File,
   onProgress: (p: UploadProgress) => void,
 ): Promise<UploadResult> {
-  const partCount = Math.ceil(file.size / PART_SIZE);
-  const ext = extensionFor(file);
-
   onProgress({ uploaded: 0, total: file.size, stage: 'init' });
 
-  const initRes = await fetch('/api/upload/init', {
+  const initRes = await fetch('/api/upload', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       size: file.size,
       contentType: file.type,
-      ext,
-      partCount,
+      ext: extensionFor(file),
     }),
   });
   if (!initRes.ok) {
     const msg = await safeError(initRes);
+    onProgress({ uploaded: 0, total: file.size, stage: 'error', message: msg });
     throw new Error(`Upload init failed: ${msg}`);
   }
-  const init = (await initRes.json()) as InitResponse;
+  const init = (await initRes.json()) as UploadInitResponse;
 
-  onProgress({ uploaded: 0, total: file.size, stage: 'parts' });
-
-  const partProgress = new Array<number>(partCount).fill(0);
-  const parts: { PartNumber: number; ETag: string }[] = new Array(partCount);
-
-  const uploadPart = async (partIndex: number): Promise<void> => {
-    const start = partIndex * PART_SIZE;
-    const end = Math.min(start + PART_SIZE, file.size);
-    const blob = file.slice(start, end);
-    const url = init.partUrls[partIndex];
-
-    let lastError: unknown = null;
-    for (let attempt = 0; attempt < MAX_PART_RETRIES; attempt++) {
-      try {
-        const etag = await putPart(url, blob, (loaded) => {
-          partProgress[partIndex] = loaded;
-          const uploaded = partProgress.reduce((a, b) => a + b, 0);
-          onProgress({ uploaded, total: file.size, stage: 'parts' });
-        });
-        parts[partIndex] = { PartNumber: partIndex + 1, ETag: etag };
-        partProgress[partIndex] = blob.size;
-        return;
-      } catch (err) {
-        lastError = err;
-        await sleep(400 * Math.pow(2, attempt));
-      }
-    }
-    throw lastError instanceof Error ? lastError : new Error(`Part ${partIndex + 1} failed`);
-  };
+  onProgress({ uploaded: 0, total: file.size, stage: 'uploading' });
 
   try {
-    await runWithConcurrency(partCount, MAX_CONCURRENT, uploadPart);
+    await putObject(init.putUrl, file, (loaded) => {
+      onProgress({ uploaded: loaded, total: file.size, stage: 'uploading' });
+    });
   } catch (err) {
-    await abortUpload(init.key, init.uploadId).catch(() => { /* best effort */ });
     const msg = err instanceof Error ? err.message : String(err);
     onProgress({ uploaded: 0, total: file.size, stage: 'error', message: msg });
     throw err;
   }
 
-  onProgress({ uploaded: file.size, total: file.size, stage: 'complete' });
-
-  const completeRes = await fetch('/api/upload/complete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key: init.key, uploadId: init.uploadId, parts }),
-  });
-  if (!completeRes.ok) {
-    await abortUpload(init.key, init.uploadId).catch(() => { /* best effort */ });
-    const msg = await safeError(completeRes);
-    onProgress({ uploaded: 0, total: file.size, stage: 'error', message: msg });
-    throw new Error(`Upload complete failed: ${msg}`);
-  }
-  const { shareUrl } = (await completeRes.json()) as { shareUrl: string };
-
   onProgress({ uploaded: file.size, total: file.size, stage: 'done' });
-  return { shareUrl, shortid: init.shortid };
+  return { shareUrl: init.shareUrl, shortid: init.shortid };
 }
 
 function extensionFor(file: File): string {
@@ -114,46 +65,19 @@ function extensionFor(file: File): string {
   return 'bin';
 }
 
-function putPart(url: string, blob: Blob, onProgress: (loaded: number) => void): Promise<string> {
+function putObject(url: string, file: File, onProgress: (loaded: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url, true);
+    xhr.setRequestHeader('Content-Type', file.type);
     xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) onProgress(ev.loaded); };
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        const etag = xhr.getResponseHeader('ETag') ?? xhr.getResponseHeader('etag');
-        if (!etag) return reject(new Error('No ETag on part response'));
-        resolve(etag);
-      } else {
-        reject(new Error(`Part PUT ${xhr.status}`));
-      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`PUT ${xhr.status}${xhr.responseText ? `: ${xhr.responseText}` : ''}`));
     };
-    xhr.onerror = () => reject(new Error('Part PUT network error'));
-    xhr.onabort = () => reject(new Error('Part PUT aborted'));
-    xhr.send(blob);
-  });
-}
-
-async function runWithConcurrency(total: number, limit: number, run: (i: number) => Promise<void>): Promise<void> {
-  let next = 0;
-  const workers: Promise<void>[] = [];
-  for (let w = 0; w < Math.min(limit, total); w++) {
-    workers.push((async () => {
-      while (true) {
-        const i = next++;
-        if (i >= total) return;
-        await run(i);
-      }
-    })());
-  }
-  await Promise.all(workers);
-}
-
-async function abortUpload(key: string, uploadId: string): Promise<void> {
-  await fetch('/api/upload/complete', {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key, uploadId }),
+    xhr.onerror = () => reject(new Error('Network error during upload (check R2 CORS)'));
+    xhr.onabort = () => reject(new Error('Upload aborted'));
+    xhr.send(file);
   });
 }
 
@@ -164,8 +88,4 @@ async function safeError(res: Response): Promise<string> {
   } catch {
     return `${res.status}`;
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

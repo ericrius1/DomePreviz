@@ -23,8 +23,7 @@ export function r2Config() {
   };
 }
 
-export const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024; // 10 GB
-export const PART_SIZE = 100 * 1024 * 1024;
+export const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB (R2 single-PUT limit)
 export const TTL_MS = 3 * 24 * 60 * 60 * 1000;
 export const ALLOWED_EXT = new Set(['mp4', 'webm', 'mov', 'm4v', 'jpg', 'jpeg', 'png', 'webp']);
 export const ALLOWED_CONTENT_TYPE = /^(video|image)\//;

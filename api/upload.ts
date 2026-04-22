@@ -1,7 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
-  CreateMultipartUploadCommand,
-  UploadPartCommand,
+  PutObjectCommand,
   ListObjectsV2Command,
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
@@ -10,18 +9,16 @@ import {
   r2Client,
   r2Config,
   MAX_FILE_SIZE,
-  PART_SIZE,
   ALLOWED_EXT,
   ALLOWED_CONTENT_TYPE,
   timestampPrefix,
   shortId,
-} from '../_r2.js';
+} from './_r2.js';
 
-interface InitBody {
+interface UploadBody {
   size: number;
   contentType: string;
   ext: string;
-  partCount: number;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -29,10 +26,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(405).send('Method Not Allowed');
     return;
   }
-  const body = req.body as InitBody;
-  const { size, contentType, ext, partCount } = body ?? {};
+  const body = req.body as UploadBody;
+  const { size, contentType, ext } = body ?? {};
   if (typeof size !== 'number' || size <= 0 || size > MAX_FILE_SIZE) {
-    res.status(400).send('size out of range');
+    res.status(400).send(`size out of range (max ${MAX_FILE_SIZE} bytes)`);
     return;
   }
   if (typeof contentType !== 'string' || !ALLOWED_CONTENT_TYPE.test(contentType)) {
@@ -43,46 +40,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(400).send('extension not allowed');
     return;
   }
-  const expectedParts = Math.ceil(size / PART_SIZE);
-  if (partCount !== expectedParts) {
-    res.status(400).send(`expected partCount=${expectedParts}`);
-    return;
-  }
 
   const client = r2Client();
   const { bucket, storageCapGB } = r2Config();
   const capBytes = storageCapGB * 1024 * 1024 * 1024;
-
   await evictUntilFits(client, bucket, size, capBytes);
 
   const id = shortId();
   const key = `videos/${timestampPrefix()}-${id}.${ext.toLowerCase()}`;
 
-  const created = await client.send(new CreateMultipartUploadCommand({
-    Bucket: bucket,
-    Key: key,
-    ContentType: contentType,
-  }));
-  const uploadId = created.UploadId;
-  if (!uploadId) {
-    res.status(500).send('No upload id returned from R2');
-    return;
-  }
+  const putUrl = await getSignedUrl(
+    client,
+    new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: contentType }),
+    { expiresIn: 3600 },
+  );
 
-  const partUrls: string[] = [];
-  for (let i = 1; i <= partCount; i++) {
-    const url = await getSignedUrl(
-      client,
-      new UploadPartCommand({ Bucket: bucket, Key: key, UploadId: uploadId, PartNumber: i }),
-      { expiresIn: 3600 },
-    );
-    partUrls.push(url);
-  }
-
-  res.status(200).json({ shortid: id, key, uploadId, partUrls });
+  res.status(200).json({
+    shortid: id,
+    key,
+    putUrl,
+    shareUrl: `/v/${id}`,
+  });
 }
 
-async function evictUntilFits(client: ReturnType<typeof r2Client>, bucket: string, incoming: number, cap: number): Promise<void> {
+async function evictUntilFits(
+  client: ReturnType<typeof r2Client>,
+  bucket: string,
+  incoming: number,
+  cap: number,
+): Promise<void> {
   let listed = await client.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: 'videos/' }));
   let objects = [...(listed.Contents ?? [])];
   while (listed.IsTruncated && listed.NextContinuationToken) {
