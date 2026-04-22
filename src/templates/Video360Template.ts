@@ -88,9 +88,9 @@ export class Video360Template implements Template {
     this.videoTexture = new THREE.VideoTexture(this.video);
     this.videoTexture.colorSpace = THREE.SRGBColorSpace;
     this.videoTexture.wrapS = THREE.RepeatWrapping;
-    this.videoTexture.minFilter = THREE.LinearFilter;
-    this.videoTexture.magFilter = THREE.LinearFilter;
-    this.videoTexture.generateMipmaps = false;
+    // this.videoTexture.minFilter = THREE.LinearFilter;
+    // this.videoTexture.magFilter = THREE.LinearFilter;
+    // this.videoTexture.generateMipmaps = false;
 
     const geom = new THREE.SphereGeometry(50, 128, 128);
     geom.scale(-1, 1, 1);

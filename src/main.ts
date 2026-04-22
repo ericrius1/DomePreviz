@@ -52,9 +52,9 @@ xrDolly.add(camera);
 const bus = new AudioBus();
 
 const state: AppState = {
-  cameraMode: 'orbit',
+  cameraMode: 'first-person',
   templateId: 'video360',
-  projectionMode: 'hemisphere',
+  projectionMode: 'fulldome',
   showFisheyeInset: true,
   domeCubeResolution: INITIAL_CUBE_RES,
   fov: 60,
@@ -125,6 +125,8 @@ ui = new TweakpaneUI(state, {
 });
 
 setTemplate('video360');
+setProjectionMode(state.projectionMode);
+cameraController.setMode(state.cameraMode);
 
 const xrControllers = new XRControllers(renderer, {
   onTemplateChange: (id) => {
