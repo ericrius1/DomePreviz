@@ -2,16 +2,20 @@ import './style.css';
 import * as THREE from 'three';
 import { WebGPURenderer, CubeRenderTarget } from 'three/webgpu';
 import { VRButton } from 'three/examples/jsm/webxr/VRButton.js';
-import { DomeScene, EYE_HEIGHT } from './app/DomeScene';
+import { DomeScene } from './app/DomeScene';
 import { DomeMaterial, DomeMaterialEquirect } from './app/DomeProjection';
 import { CameraController } from './app/CameraController';
 import { AudioBus } from './audio/AudioBus';
-import { createTemplate } from './templates/registry';
 import { Video360Template } from './templates/Video360Template';
 import { TweakpaneUI } from './ui/TweakpaneUI';
 import { FisheyeInset } from './ui/FisheyeInset';
 import { XRControllers } from './xr/XRControllers';
-import type { AppState, Template, TemplateId, CameraMode, CubeResolution, ProjectionMode } from './types';
+import { mountShareUI } from './share/shareUI';
+import type { AppState, CameraMode, CubeResolution, ProjectionMode } from './types';
+
+const shareIdMatch = window.location.pathname.match(/^\/v\/([a-zA-Z0-9_-]+)$/);
+const shareId = shareIdMatch ? shareIdMatch[1] : null;
+const viewerMode = shareId !== null;
 
 const canvas = document.createElement('canvas');
 canvas.id = 'view';
@@ -53,7 +57,6 @@ const bus = new AudioBus();
 
 const state: AppState = {
   cameraMode: 'first-person',
-  templateId: 'video360',
   projectionMode: 'fulldome',
   showFisheyeInset: true,
   domeCubeResolution: INITIAL_CUBE_RES,
@@ -63,7 +66,6 @@ const state: AppState = {
 
 cameraController.setHeight(state.firstPersonHeight);
 
-let current: Template | null = null;
 let ui: TweakpaneUI | null = null;
 let domeMaterialEquirect: DomeMaterialEquirect | null = null;
 
@@ -82,18 +84,10 @@ function setEquirectSource(tex: THREE.Texture | null) {
   }
 }
 
-function setTemplate(id: TemplateId) {
-  if (current) current.dispose();
-  while (dome.templateScene.children.length) dome.templateScene.remove(dome.templateScene.children[0]);
-  current = createTemplate(id);
-  if (current instanceof Video360Template) {
-    current.onEquirectSource = (tex) => setEquirectSource(tex);
-  } else {
-    setEquirectSource(null);
-  }
-  current.init(dome.templateScene, bus);
-  if (ui) ui.bindTemplateParams(current);
-}
+const template = new Video360Template();
+template.setViewerMode(viewerMode);
+template.onEquirectSource = (tex) => setEquirectSource(tex);
+template.init(dome.templateScene, bus);
 
 function setProjectionMode(m: ProjectionMode) {
   state.projectionMode = m;
@@ -111,7 +105,6 @@ function setCubeResolution(res: CubeResolution) {
 const presets: Record<1 | 2, { pos: THREE.Vector3; target: THREE.Vector3 } | null> = { 1: null, 2: null };
 
 ui = new TweakpaneUI(state, {
-  onTemplateChange: (id) => setTemplate(id),
   onCameraModeChange: (m: CameraMode) => cameraController.setMode(m),
   onPresetSave: (slot) => {
     presets[slot] = { pos: camera.position.clone(), target: new THREE.Vector3(0, 2, 0) };
@@ -127,17 +120,16 @@ ui = new TweakpaneUI(state, {
   onCubeResolutionChange: (v) => setCubeResolution(v),
   onFirstPersonHeightChange: (h) => cameraController.setHeight(h),
 });
+ui.bindTemplateParams(template);
 
-setTemplate('video360');
+if (!viewerMode) {
+  mountShareUI(ui, () => template.currentFile);
+}
+
 setProjectionMode(state.projectionMode);
 cameraController.setMode(state.cameraMode);
 
 const xrControllers = new XRControllers(renderer, {
-  onTemplateChange: (id) => {
-    setTemplate(id);
-    state.templateId = id;
-    ui?.pane.refresh();
-  },
   onCameraModeChange: (m) => {
     cameraController.setMode(m);
     state.cameraMode = m;
@@ -145,6 +137,20 @@ const xrControllers = new XRControllers(renderer, {
   },
 });
 dome.outerScene.add(xrControllers.group);
+
+if (viewerMode && shareId) {
+  fetch(`/api/resolve?id=${encodeURIComponent(shareId)}`)
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`resolve ${r.status}`))))
+    .then((data: { url: string; kind: 'video' | 'image' }) => {
+      template.loadFromUrl(data.url, data.kind);
+    })
+    .catch(() => {
+      const el = document.createElement('div');
+      el.className = 'viewer-missing';
+      el.textContent = 'Video not found or expired.';
+      document.body.appendChild(el);
+    });
+}
 
 setInterval(() => {
   if (camera.fov !== state.fov) {
@@ -175,8 +181,8 @@ document.addEventListener('keydown', (ev) => {
     setProjectionMode(next);
     ui?.pane.refresh();
   } else if (ev.key === 'x' || ev.key === 'X') {
-    if (current instanceof Video360Template) {
-      current.clear();
+    if (!viewerMode) {
+      template.clear();
       ui?.pane.refresh();
     }
   }
@@ -219,10 +225,9 @@ function tick() {
 
   cameraController.update(dt);
   bus.update(dt);
-  current?.update(dt, time);
+  template.update(dt, time);
   updateAudioListener();
 
-  // One cube capture of the template scene feeds both the dome surface and the fisheye inset.
   domeCubeCamera.update(renderer as unknown as THREE.WebGLRenderer, dome.templateScene);
 
   renderer.render(dome.outerScene, camera);

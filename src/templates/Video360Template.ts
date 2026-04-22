@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Template, TemplateAction, AudioBusLike, TweakpaneSchema } from '../types';
+import type { TemplateAction, AudioBusLike, TweakpaneSchema } from '../types';
 import { Video360Audio } from '../audio/templates/Video360Audio';
 
 const DB_NAME = 'dome-previz';
@@ -58,8 +58,7 @@ async function loadStoredFile(): Promise<File | null> {
   } finally { db.close(); }
 }
 
-export class Video360Template implements Template {
-  id = 'video360' as const;
+export class Video360Template {
   private group = new THREE.Group();
   private audio: Video360Audio | null = null;
   private video: HTMLVideoElement;
@@ -71,6 +70,8 @@ export class Video360Template implements Template {
   private _bus: AudioBusLike | null = null;
   private dropzone: HTMLDivElement | null = null;
   private disposed = false;
+  private viewerMode = false;
+  currentFile: File | null = null;
 
   // Set by main.ts to route the loaded equirect texture directly into the dome material,
   // bypassing the cube-map roundtrip that otherwise produces visible face-boundary seams.
@@ -114,23 +115,79 @@ export class Video360Template implements Template {
 
     this.audio = new Video360Audio(bus);
 
-    this.dropzone = document.createElement('div');
-    this.dropzone.className = 'video360-dropzone';
-    this.dropzone.textContent = 'Drop 360 video or image here';
-    document.body.appendChild(this.dropzone);
+    if (!this.viewerMode) {
+      this.dropzone = document.createElement('div');
+      this.dropzone.className = 'video360-dropzone';
+      this.dropzone.textContent = 'Drop 360 video or image here';
+      document.body.appendChild(this.dropzone);
 
-    window.addEventListener('dragover', this.onDragOver);
-    window.addEventListener('dragleave', this.onDragLeave);
-    window.addEventListener('drop', this.onDrop);
+      window.addEventListener('dragover', this.onDragOver);
+      window.addEventListener('dragleave', this.onDragLeave);
+      window.addEventListener('drop', this.onDrop);
 
-    loadStoredFile()
-      .then((file) => { if (file && !this.disposed) this.loadFile(file); })
-      .catch(() => { /* no cached file */ });
+      loadStoredFile()
+        .then((file) => { if (file && !this.disposed) this.loadFile(file); })
+        .catch(() => { /* no cached file */ });
+    }
   }
 
+  setViewerMode(on: boolean) { this.viewerMode = on; }
+
   loadFile(file: File) {
+    this.currentFile = file;
     if (file.type.startsWith('video/')) this.loadVideoFile(file);
     else if (file.type.startsWith('image/')) this.loadImageFile(file);
+  }
+
+  loadFromUrl(url: string, kind: 'video' | 'image') {
+    this.currentFile = null;
+    if (kind === 'video') this.loadVideoUrl(url);
+    else this.loadImageUrl(url);
+  }
+
+  private loadVideoUrl(url: string) {
+    if (this.videoObjectUrl) { URL.revokeObjectURL(this.videoObjectUrl); this.videoObjectUrl = null; }
+    this.video.crossOrigin = 'anonymous';
+    this.video.src = url;
+    this.params.fileLabel = '(shared)';
+    if (this.dropzone) this.dropzone.style.display = 'none';
+    if (this.material && this.videoTexture && this.material.map !== this.videoTexture) {
+      this.material.map = this.videoTexture;
+      this.material.needsUpdate = true;
+    }
+    this.disposeImageTexture();
+    this.video.addEventListener('loadeddata', () => {
+      if (this._bus && this.audio) this.audio.attachVideo(this.video);
+      if (this.params.play) this.video.play().catch(() => { /* autoplay blocked */ });
+      this.params.sourceResolution = `${this.video.videoWidth}×${this.video.videoHeight}`;
+      if (this.videoTexture) this.onEquirectSource?.(this.videoTexture);
+    }, { once: true });
+  }
+
+  private loadImageUrl(url: string) {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      this.disposeImageTexture();
+      const tex = new THREE.Texture(img);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.generateMipmaps = false;
+      tex.needsUpdate = true;
+      this.imageTexture = tex;
+      if (this.material) {
+        this.material.map = tex;
+        this.material.needsUpdate = true;
+      }
+      if (!this.video.paused) this.video.pause();
+      this.params.fileLabel = '(shared)';
+      this.params.sourceResolution = `${img.width}×${img.height}`;
+      if (this.dropzone) this.dropzone.style.display = 'none';
+      this.onEquirectSource?.(tex);
+    };
+    img.src = url;
   }
 
   private loadVideoFile(file: File) {

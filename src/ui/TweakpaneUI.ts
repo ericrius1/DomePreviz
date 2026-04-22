@@ -1,11 +1,15 @@
 import { Pane } from 'tweakpane';
 import type { FolderApi } from '@tweakpane/core';
-import type { AppState, Template, TemplateId, CameraMode, CubeResolution, ProjectionMode } from '../types';
+import type { AppState, CameraMode, CubeResolution, ProjectionMode, TemplateAction, TweakpaneSchema } from '../types';
 
 interface Disposable { dispose(): void; }
 
+export interface TemplateLike {
+  getParams(): TweakpaneSchema;
+  getActions?(): TemplateAction[];
+}
+
 export interface TweakpaneUIActions {
-  onTemplateChange: (id: TemplateId) => void;
   onCameraModeChange: (mode: CameraMode) => void;
   onPresetSave: (slot: 1 | 2) => void;
   onPresetRecall: (slot: 1 | 2) => void;
@@ -16,7 +20,7 @@ export interface TweakpaneUIActions {
 
 export class TweakpaneUI {
   pane: Pane;
-  private templateFolder: FolderApi;
+  templateFolder: FolderApi;
   private currentTemplateItems: Disposable[] = [];
 
   constructor(appState: AppState, actions: TweakpaneUIActions) {
@@ -31,15 +35,7 @@ export class TweakpaneUI {
     }).on('change', (ev) => actions.onProjectionModeChange(ev.value as ProjectionMode));
     cfg.addBinding(appState, 'showFisheyeInset');
 
-    this.templateFolder = this.pane.addFolder({ title: 'Template' });
-    this.templateFolder.addBinding(appState, 'templateId', {
-      options: {
-        Planetarium: 'planetarium',
-        Terrain: 'terrain',
-        Aurora: 'aurora',
-        '360 Video': 'video360',
-      },
-    }).on('change', (ev) => actions.onTemplateChange(ev.value as TemplateId));
+    this.templateFolder = this.pane.addFolder({ title: '360 Media' });
 
     const cam = this.pane.addFolder({ title: 'Camera' });
     cam.addBinding(appState, 'cameraMode', {
@@ -54,7 +50,7 @@ export class TweakpaneUI {
     cam.addButton({ title: 'Recall Preset 2' }).on('click', () => actions.onPresetRecall(2));
   }
 
-  bindTemplateParams(template: Template) {
+  bindTemplateParams(template: TemplateLike) {
     this.currentTemplateItems.forEach((b) => b.dispose());
     this.currentTemplateItems = [];
     const params = template.getParams() as Record<string, unknown>;
@@ -72,8 +68,8 @@ export class TweakpaneUI {
         this.currentTemplateItems.push(b);
       }
     }
-    const actions = template.getActions?.() ?? [];
-    for (const action of actions) {
+    const templateActions = template.getActions?.() ?? [];
+    for (const action of templateActions) {
       const btn = this.templateFolder.addButton({ title: action.label }).on('click', () => action.run());
       this.currentTemplateItems.push(btn);
     }

@@ -1,8 +1,6 @@
-import type * as THREE from 'three';
 import type { FeatureSnapshot } from './audio/AudioFeatures';
 
 export type CameraMode = 'orbit' | 'first-person' | 'xr-view';
-export type TemplateId = 'planetarium' | 'terrain' | 'aurora' | 'video360';
 export type ProjectionMode = 'hemisphere' | 'fulldome';
 
 export interface TweakpaneSchema {
@@ -22,20 +20,10 @@ export interface TemplateAction {
   run(): void;
 }
 
-export interface Template {
-  id: TemplateId;
-  init(scene: THREE.Scene, bus: AudioBusLike): void;
-  update(dt: number, time: number): void;
-  dispose(): void;
-  getParams(): TweakpaneSchema;
-  getActions?(): TemplateAction[];
-}
-
 export type CubeResolution = 256 | 512 | 1024 | 2048;
 
 export interface AppState {
   cameraMode: CameraMode;
-  templateId: TemplateId;
   projectionMode: ProjectionMode;
   showFisheyeInset: boolean;
   domeCubeResolution: CubeResolution;
