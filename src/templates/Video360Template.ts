@@ -10,6 +10,7 @@ export class Video360Template implements Template {
   private texture: THREE.VideoTexture | null = null;
   private sphere: THREE.Mesh | null = null;
   private _bus: AudioBusLike | null = null;
+  private dropzone: HTMLDivElement | null = null;
 
   params = {
     play: true,
@@ -44,7 +45,13 @@ export class Video360Template implements Template {
 
     this.audio = new Video360Audio(bus);
 
+    this.dropzone = document.createElement('div');
+    this.dropzone.className = 'video360-dropzone';
+    this.dropzone.textContent = 'Drop 360 video here';
+    document.body.appendChild(this.dropzone);
+
     window.addEventListener('dragover', this.onDragOver);
+    window.addEventListener('dragleave', this.onDragLeave);
     window.addEventListener('drop', this.onDrop);
   }
 
@@ -52,15 +59,23 @@ export class Video360Template implements Template {
     const url = URL.createObjectURL(file);
     this.video.src = url;
     this.params.fileLabel = file.name;
+    if (this.dropzone) this.dropzone.style.display = 'none';
     this.video.addEventListener('loadeddata', () => {
       if (this._bus && this.audio) this.audio.attachVideo(this.video);
       if (this.params.play) this.video.play().catch(() => { /* autoplay blocked */ });
     }, { once: true });
   }
 
-  private onDragOver = (e: DragEvent) => { e.preventDefault(); };
+  private onDragOver = (e: DragEvent) => {
+    e.preventDefault();
+    this.dropzone?.classList.add('active');
+  };
+  private onDragLeave = (e: DragEvent) => {
+    if (!e.relatedTarget) this.dropzone?.classList.remove('active');
+  };
   private onDrop = (e: DragEvent) => {
     e.preventDefault();
+    this.dropzone?.classList.remove('active');
     const file = e.dataTransfer?.files?.[0];
     if (file && file.type.startsWith('video/')) this.loadFile(file);
   };
@@ -73,7 +88,10 @@ export class Video360Template implements Template {
 
   dispose(): void {
     window.removeEventListener('dragover', this.onDragOver);
+    window.removeEventListener('dragleave', this.onDragLeave);
     window.removeEventListener('drop', this.onDrop);
+    this.dropzone?.remove();
+    this.dropzone = null;
     this.audio?.dispose();
     this.video.pause();
     this.video.removeAttribute('src');

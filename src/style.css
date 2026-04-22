@@ -14,3 +14,28 @@ html, body, #app { margin: 0; padding: 0; height: 100%; background: #0a0a0f; }
   pointer-events: none;
   z-index: 5;
 }
+
+.video360-dropzone {
+  position: fixed;
+  left: 10%;
+  top: 10%;
+  width: 80%;
+  height: 80%;
+  border: 2px dashed rgba(255, 255, 255, 0.28);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 1.15rem;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  z-index: 4;
+  background: rgba(10, 10, 15, 0.08);
+  transition: border-color 0.15s, background-color 0.15s, color 0.15s;
+}
+.video360-dropzone.active {
+  border-color: rgba(120, 200, 255, 0.9);
+  background: rgba(120, 200, 255, 0.1);
+  color: rgba(230, 245, 255, 0.95);
+}
