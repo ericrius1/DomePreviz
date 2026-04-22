@@ -1,13 +1,13 @@
 import { Pane } from 'tweakpane';
 import type { FolderApi, BindingApi } from '@tweakpane/core';
-import type { AppState, Template, TemplateId, CameraMode, CubeResolution } from '../types';
+import type { AppState, Template, TemplateId, CameraMode, CubeResolution, ProjectionMode } from '../types';
 
 export interface TweakpaneUIActions {
   onTemplateChange: (id: TemplateId) => void;
   onCameraModeChange: (mode: CameraMode) => void;
   onPresetSave: (slot: 1 | 2) => void;
   onPresetRecall: (slot: 1 | 2) => void;
-  onDomeOpacityChange: (v: number) => void;
+  onProjectionModeChange: (m: ProjectionMode) => void;
   onCubeResolutionChange: (v: CubeResolution) => void;
 }
 
@@ -23,8 +23,9 @@ export class TweakpaneUI {
     cfg.addBinding(appState, 'domeCubeResolution', {
       options: { '256': 256, '512': 512, '1024': 1024, '2048': 2048 },
     }).on('change', (ev) => actions.onCubeResolutionChange(ev.value as CubeResolution));
-    cfg.addBinding(appState, 'domeOpacity', { min: 0.0, max: 1.0, step: 0.01 })
-      .on('change', (ev) => actions.onDomeOpacityChange(ev.value as number));
+    cfg.addBinding(appState, 'projectionMode', {
+      options: { Hemisphere: 'hemisphere', 'Fulldome (squash)': 'fulldome' },
+    }).on('change', (ev) => actions.onProjectionModeChange(ev.value as ProjectionMode));
     cfg.addBinding(appState, 'showFisheyeInset');
 
     this.templateFolder = this.pane.addFolder({ title: 'Template' });

@@ -7,7 +7,9 @@ export class Video360Template implements Template {
   private group = new THREE.Group();
   private audio: Video360Audio | null = null;
   private video: HTMLVideoElement;
-  private texture: THREE.VideoTexture | null = null;
+  private videoTexture: THREE.VideoTexture | null = null;
+  private imageTexture: THREE.Texture | null = null;
+  private material: THREE.MeshBasicMaterial | null = null;
   private sphere: THREE.Mesh | null = null;
   private _bus: AudioBusLike | null = null;
   private dropzone: HTMLDivElement | null = null;
@@ -33,13 +35,17 @@ export class Video360Template implements Template {
     scene.background = new THREE.Color(0x000000);
     scene.add(new THREE.AmbientLight(0xffffff, 1));
 
-    this.texture = new THREE.VideoTexture(this.video);
-    this.texture.colorSpace = THREE.SRGBColorSpace;
+    this.videoTexture = new THREE.VideoTexture(this.video);
+    this.videoTexture.colorSpace = THREE.SRGBColorSpace;
+    this.videoTexture.wrapS = THREE.RepeatWrapping;
+    this.videoTexture.minFilter = THREE.LinearFilter;
+    this.videoTexture.magFilter = THREE.LinearFilter;
+    this.videoTexture.generateMipmaps = false;
 
-    const geom = new THREE.SphereGeometry(50, 64, 64);
+    const geom = new THREE.SphereGeometry(50, 128, 128);
     geom.scale(-1, 1, 1);
-    const mat = new THREE.MeshBasicMaterial({ map: this.texture, color: 0x888888 });
-    this.sphere = new THREE.Mesh(geom, mat);
+    this.material = new THREE.MeshBasicMaterial({ map: this.videoTexture });
+    this.sphere = new THREE.Mesh(geom, this.material);
     this.group.add(this.sphere);
     scene.add(this.group);
 
@@ -47,7 +53,7 @@ export class Video360Template implements Template {
 
     this.dropzone = document.createElement('div');
     this.dropzone.className = 'video360-dropzone';
-    this.dropzone.textContent = 'Drop 360 video here';
+    this.dropzone.textContent = 'Drop 360 video or image here';
     document.body.appendChild(this.dropzone);
 
     window.addEventListener('dragover', this.onDragOver);
@@ -56,14 +62,51 @@ export class Video360Template implements Template {
   }
 
   loadFile(file: File) {
+    if (file.type.startsWith('video/')) this.loadVideoFile(file);
+    else if (file.type.startsWith('image/')) this.loadImageFile(file);
+  }
+
+  private loadVideoFile(file: File) {
     const url = URL.createObjectURL(file);
     this.video.src = url;
     this.params.fileLabel = file.name;
     if (this.dropzone) this.dropzone.style.display = 'none';
+    if (this.material && this.videoTexture && this.material.map !== this.videoTexture) {
+      this.material.map = this.videoTexture;
+      this.material.needsUpdate = true;
+    }
+    this.disposeImageTexture();
     this.video.addEventListener('loadeddata', () => {
       if (this._bus && this.audio) this.audio.attachVideo(this.video);
       if (this.params.play) this.video.play().catch(() => { /* autoplay blocked */ });
     }, { once: true });
+  }
+
+  private loadImageFile(file: File) {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      this.disposeImageTexture();
+      const tex = new THREE.Texture(img);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.generateMipmaps = false;
+      tex.needsUpdate = true;
+      this.imageTexture = tex;
+      if (this.material) {
+        this.material.map = tex;
+        this.material.needsUpdate = true;
+      }
+      if (!this.video.paused) this.video.pause();
+      this.params.fileLabel = file.name;
+      if (this.dropzone) this.dropzone.style.display = 'none';
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
   }
 
   private onDragOver = (e: DragEvent) => {
@@ -77,13 +120,23 @@ export class Video360Template implements Template {
     e.preventDefault();
     this.dropzone?.classList.remove('active');
     const file = e.dataTransfer?.files?.[0];
-    if (file && file.type.startsWith('video/')) this.loadFile(file);
+    if (!file) return;
+    if (file.type.startsWith('video/') || file.type.startsWith('image/')) this.loadFile(file);
   };
 
   update(_dt: number, _time: number): void {
     this.video.loop = this.params.loop;
+    const showingVideo = this.material?.map === this.videoTexture;
+    if (!showingVideo) return;
     if (this.params.play && this.video.paused && this.video.src) this.video.play().catch(() => { /* autoplay blocked */ });
     if (!this.params.play && !this.video.paused) this.video.pause();
+  }
+
+  private disposeImageTexture() {
+    if (this.imageTexture) {
+      this.imageTexture.dispose();
+      this.imageTexture = null;
+    }
   }
 
   dispose(): void {
@@ -96,7 +149,8 @@ export class Video360Template implements Template {
     this.video.pause();
     this.video.removeAttribute('src');
     this.video.remove();
-    this.texture?.dispose();
+    this.videoTexture?.dispose();
+    this.disposeImageTexture();
     this.group.parent?.remove(this.group);
     this.sphere?.geometry.dispose();
     if (this.sphere) (this.sphere.material as THREE.Material).dispose();

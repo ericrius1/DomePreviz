@@ -3,6 +3,7 @@ import type { FeatureSnapshot } from './audio/AudioFeatures';
 
 export type CameraMode = 'orbit' | 'first-person' | 'xr-view';
 export type TemplateId = 'planetarium' | 'terrain' | 'aurora' | 'video360';
+export type ProjectionMode = 'hemisphere' | 'fulldome';
 
 export interface TweakpaneSchema {
   [key: string]: unknown;
@@ -29,7 +30,7 @@ export type CubeResolution = 256 | 512 | 1024 | 2048;
 export interface AppState {
   cameraMode: CameraMode;
   templateId: TemplateId;
-  domeOpacity: number;
+  projectionMode: ProjectionMode;
   showFisheyeInset: boolean;
   domeCubeResolution: CubeResolution;
   fov: number;

@@ -10,7 +10,7 @@ import { createTemplate } from './templates/registry';
 import { TweakpaneUI } from './ui/TweakpaneUI';
 import { FisheyeInset } from './ui/FisheyeInset';
 import { XRControllers } from './xr/XRControllers';
-import type { AppState, Template, TemplateId, CameraMode, CubeResolution } from './types';
+import type { AppState, Template, TemplateId, CameraMode, CubeResolution, ProjectionMode } from './types';
 
 const canvas = document.createElement('canvas');
 canvas.id = 'view';
@@ -52,8 +52,8 @@ const bus = new AudioBus();
 
 const state: AppState = {
   cameraMode: 'orbit',
-  templateId: 'planetarium',
-  domeOpacity: 0.55,
+  templateId: 'video360',
+  projectionMode: 'hemisphere',
   showFisheyeInset: true,
   domeCubeResolution: INITIAL_CUBE_RES,
   fov: 60,
@@ -91,11 +91,11 @@ ui = new TweakpaneUI(state, {
       camera.lookAt(p.target);
     }
   },
-  onDomeOpacityChange: (v) => domeMaterial.setOpacity(v),
+  onProjectionModeChange: (m) => domeMaterial.setProjectionMode(m),
   onCubeResolutionChange: (v) => setCubeResolution(v),
 });
 
-setTemplate('planetarium');
+setTemplate('video360');
 
 const xrControllers = new XRControllers(renderer, {
   onTemplateChange: (id) => {
@@ -128,13 +128,19 @@ document.addEventListener('keydown', resumeOnce);
 
 const CAM_MODES: CameraMode[] = ['orbit', 'first-person', 'xr-view'];
 document.addEventListener('keydown', (ev) => {
-  if (ev.key !== 'c' && ev.key !== 'C') return;
   const t = ev.target as HTMLElement | null;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-  const next = CAM_MODES[(CAM_MODES.indexOf(state.cameraMode) + 1) % CAM_MODES.length];
-  cameraController.setMode(next);
-  state.cameraMode = next;
-  ui?.pane.refresh();
+  if (ev.key === 'c' || ev.key === 'C') {
+    const next = CAM_MODES[(CAM_MODES.indexOf(state.cameraMode) + 1) % CAM_MODES.length];
+    cameraController.setMode(next);
+    state.cameraMode = next;
+    ui?.pane.refresh();
+  } else if (ev.key === 'p' || ev.key === 'P') {
+    const next: ProjectionMode = state.projectionMode === 'hemisphere' ? 'fulldome' : 'hemisphere';
+    domeMaterial.setProjectionMode(next);
+    state.projectionMode = next;
+    ui?.pane.refresh();
+  }
 });
 
 function updateAudioListener() {

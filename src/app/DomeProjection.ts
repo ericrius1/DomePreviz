@@ -6,33 +6,45 @@ import * as TSL from 'three/tsl';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const T: any = TSL;
 const {
-  Fn, uniform, vec4, float, mix, step, dot, normalize,
-  positionWorld, normalWorld, cameraPosition, cubeTexture,
+  Fn, uniform, vec3, vec4, float, mix, normalize,
+  positionWorld, cubeTexture,
 } = T;
 
 export class DomeMaterial extends NodeMaterial {
-  uOpacity = uniform(0.55);
+  // 0 = hemisphere (physical dome: upper 180° of scene),
+  // 1 = fulldome (squash full 360° scene into hemisphere by doubling polar angle).
+  uProjectionMode = uniform(0.0);
 
   constructor(cubeTex: THREE.CubeTexture) {
     super();
     this.side = THREE.DoubleSide;
 
-    const { uOpacity } = this;
+    const { uProjectionMode } = this;
 
     this.colorNode = Fn(() => {
-      const dir = normalize(positionWorld);
+      // Hemisphere: sample cube in the dome point's world direction.
+      const dirH = normalize(positionWorld);
+
+      // Fulldome squash: double polar angle from zenith so latitude 0..π/2 → 0..π.
+      // Using double-angle identities (y is the cosine of the polar angle):
+      //   cos(2θ) = 2y² - 1
+      //   new xz = xz · (sin(2θ)/sin(θ)) = xz · 2y
+      // Resulting vector is already unit-length.
+      const y = dirH.y;
+      const twoY = y.mul(2.0);
+      const dirFD = vec3(
+        dirH.x.mul(twoY),
+        y.mul(y).mul(2.0).sub(1.0),
+        dirH.z.mul(twoY),
+      );
+
+      const dir = mix(dirH, dirFD, uProjectionMode);
       const col = cubeTexture(cubeTex, dir).rgb;
-
-      const view = normalize(cameraPosition.sub(positionWorld));
-      const facing = dot(normalize(normalWorld), view);
-      const exterior = step(facing, float(0.0));
-      const mul = mix(float(1.0), uOpacity, exterior);
-
-      return vec4(col.mul(mul), 1.0);
+      return vec4(col, float(1.0));
     })();
   }
 
-  setOpacity(v: number) {
-    this.uOpacity.value = v;
+  setProjectionMode(m: 'hemisphere' | 'fulldome') {
+    this.uProjectionMode.value = m === 'fulldome' ? 1.0 : 0.0;
   }
 }
