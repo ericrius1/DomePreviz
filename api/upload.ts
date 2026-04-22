@@ -22,45 +22,51 @@ interface UploadBody {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') {
-    res.status(405).send('Method Not Allowed');
-    return;
-  }
-  const body = req.body as UploadBody;
-  const { size, contentType, ext } = body ?? {};
-  if (typeof size !== 'number' || size <= 0 || size > MAX_FILE_SIZE) {
-    res.status(400).send(`size out of range (max ${MAX_FILE_SIZE} bytes)`);
-    return;
-  }
-  if (typeof contentType !== 'string' || !ALLOWED_CONTENT_TYPE.test(contentType)) {
-    res.status(400).send('content type not allowed');
-    return;
-  }
-  if (typeof ext !== 'string' || !ALLOWED_EXT.has(ext.toLowerCase())) {
-    res.status(400).send('extension not allowed');
-    return;
-  }
+  try {
+    if (req.method !== 'POST') {
+      res.status(405).send('Method Not Allowed');
+      return;
+    }
+    const body = req.body as UploadBody;
+    const { size, contentType, ext } = body ?? {};
+    if (typeof size !== 'number' || size <= 0 || size > MAX_FILE_SIZE) {
+      res.status(400).send(`size out of range (max ${MAX_FILE_SIZE} bytes)`);
+      return;
+    }
+    if (typeof contentType !== 'string' || !ALLOWED_CONTENT_TYPE.test(contentType)) {
+      res.status(400).send('content type not allowed');
+      return;
+    }
+    if (typeof ext !== 'string' || !ALLOWED_EXT.has(ext.toLowerCase())) {
+      res.status(400).send('extension not allowed');
+      return;
+    }
 
-  const client = r2Client();
-  const { bucket, storageCapGB } = r2Config();
-  const capBytes = storageCapGB * 1024 * 1024 * 1024;
-  await evictUntilFits(client, bucket, size, capBytes);
+    const client = r2Client();
+    const { bucket, storageCapGB } = r2Config();
+    const capBytes = storageCapGB * 1024 * 1024 * 1024;
+    await evictUntilFits(client, bucket, size, capBytes);
 
-  const id = shortId();
-  const key = `videos/${timestampPrefix()}-${id}.${ext.toLowerCase()}`;
+    const id = shortId();
+    const key = `videos/${timestampPrefix()}-${id}.${ext.toLowerCase()}`;
 
-  const putUrl = await getSignedUrl(
-    client,
-    new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: contentType }),
-    { expiresIn: 3600 },
-  );
+    const putUrl = await getSignedUrl(
+      client,
+      new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: contentType }),
+      { expiresIn: 3600 },
+    );
 
-  res.status(200).json({
-    shortid: id,
-    key,
-    putUrl,
-    shareUrl: `/v/${id}`,
-  });
+    res.status(200).json({
+      shortid: id,
+      key,
+      putUrl,
+      shareUrl: `/v/${id}`,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[api/upload] handler failed:', msg, err);
+    res.status(500).send(msg);
+  }
 }
 
 async function evictUntilFits(
