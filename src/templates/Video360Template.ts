@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Template, AudioBusLike, TweakpaneSchema } from '../types';
+import type { Template, TemplateAction, AudioBusLike, TweakpaneSchema } from '../types';
 import { Video360Audio } from '../audio/templates/Video360Audio';
 
 const DB_NAME = 'dome-previz';
@@ -32,6 +32,18 @@ async function saveStoredFile(file: File): Promise<void> {
   } finally { db.close(); }
 }
 
+async function deleteStoredFile(): Promise<void> {
+  const db = await openDB();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).delete(KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } finally { db.close(); }
+}
+
 async function loadStoredFile(): Promise<File | null> {
   const db = await openDB();
   try {
@@ -51,6 +63,7 @@ export class Video360Template implements Template {
   private group = new THREE.Group();
   private audio: Video360Audio | null = null;
   private video: HTMLVideoElement;
+  private videoObjectUrl: string | null = null;
   private videoTexture: THREE.VideoTexture | null = null;
   private imageTexture: THREE.Texture | null = null;
   private material: THREE.MeshBasicMaterial | null = null;
@@ -121,7 +134,9 @@ export class Video360Template implements Template {
   }
 
   private loadVideoFile(file: File) {
+    if (this.videoObjectUrl) URL.revokeObjectURL(this.videoObjectUrl);
     const url = URL.createObjectURL(file);
+    this.videoObjectUrl = url;
     this.video.src = url;
     this.params.fileLabel = file.name;
     if (this.dropzone) this.dropzone.style.display = 'none';
@@ -199,6 +214,31 @@ export class Video360Template implements Template {
     }
   }
 
+  clear(): void {
+    this.video.pause();
+    this.video.removeAttribute('src');
+    this.video.load();
+    if (this.videoObjectUrl) {
+      URL.revokeObjectURL(this.videoObjectUrl);
+      this.videoObjectUrl = null;
+    }
+    this.disposeImageTexture();
+    if (this.material) {
+      this.material.map = null;
+      this.material.needsUpdate = true;
+    }
+    this.audio?.detach();
+    this.params.fileLabel = '(none loaded)';
+    this.params.sourceResolution = '(none)';
+    if (this.dropzone) this.dropzone.style.display = '';
+    this.onEquirectSource?.(null);
+    deleteStoredFile().catch(() => { /* best-effort */ });
+  }
+
+  getActions(): TemplateAction[] {
+    return [{ label: 'Clear', run: () => this.clear() }];
+  }
+
   dispose(): void {
     this.disposed = true;
     this.onEquirectSource?.(null);
@@ -211,6 +251,10 @@ export class Video360Template implements Template {
     this.video.pause();
     this.video.removeAttribute('src');
     this.video.remove();
+    if (this.videoObjectUrl) {
+      URL.revokeObjectURL(this.videoObjectUrl);
+      this.videoObjectUrl = null;
+    }
     this.videoTexture?.dispose();
     this.disposeImageTexture();
     this.group.parent?.remove(this.group);

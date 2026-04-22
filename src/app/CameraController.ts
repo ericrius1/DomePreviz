@@ -9,6 +9,7 @@ const WALL_BUFFER = 0.5;
 
 export class CameraController {
   camera: THREE.PerspectiveCamera;
+  height = EYE_HEIGHT;
   private orbit: OrbitControls | null = null;
   private pointerLock: PointerLockControls | null = null;
   private domElement: HTMLElement;
@@ -35,7 +36,7 @@ export class CameraController {
       c.maxPolarAngle = Math.PI / 2 - 0.05;
       this.orbit = c;
     } else if (mode === 'first-person') {
-      this.camera.position.set(0, EYE_HEIGHT, 0);
+      this.camera.position.set(0, this.height, 0);
       const c = new PointerLockControls(this.camera, this.domElement);
       this.pointerLock = c;
       this.domElement.addEventListener('click', this.requestLock);
@@ -43,6 +44,13 @@ export class CameraController {
       window.addEventListener('keyup', this.onKeyUp);
     } else if (mode === 'xr-view') {
       this.camera.position.set(0, EYE_HEIGHT, 0);
+    }
+  }
+
+  setHeight(h: number) {
+    this.height = h;
+    if (this.mode === 'first-person') {
+      this.camera.position.y = h;
     }
   }
 
@@ -92,7 +100,7 @@ export class CameraController {
       this.camera.position.x = (px / r) * maxR;
       this.camera.position.z = (pz / r) * maxR;
     }
-    this.camera.position.y = EYE_HEIGHT;
+    this.camera.position.y = this.height;
   }
 
   private teardown() {

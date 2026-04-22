@@ -58,7 +58,10 @@ const state: AppState = {
   showFisheyeInset: true,
   domeCubeResolution: INITIAL_CUBE_RES,
   fov: 60,
+  firstPersonHeight: 1.6,
 };
+
+cameraController.setHeight(state.firstPersonHeight);
 
 let current: Template | null = null;
 let ui: TweakpaneUI | null = null;
@@ -122,6 +125,7 @@ ui = new TweakpaneUI(state, {
   },
   onProjectionModeChange: (m) => setProjectionMode(m),
   onCubeResolutionChange: (v) => setCubeResolution(v),
+  onFirstPersonHeightChange: (h) => cameraController.setHeight(h),
 });
 
 setTemplate('video360');
@@ -170,6 +174,11 @@ document.addEventListener('keydown', (ev) => {
     const next: ProjectionMode = state.projectionMode === 'hemisphere' ? 'fulldome' : 'hemisphere';
     setProjectionMode(next);
     ui?.pane.refresh();
+  } else if (ev.key === 'x' || ev.key === 'X') {
+    if (current instanceof Video360Template) {
+      current.clear();
+      ui?.pane.refresh();
+    }
   }
 });
 

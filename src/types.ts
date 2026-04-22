@@ -17,12 +17,18 @@ export interface AudioBusLike {
   speakers: { input(): AudioNode; index: number; color: number }[];
 }
 
+export interface TemplateAction {
+  label: string;
+  run(): void;
+}
+
 export interface Template {
   id: TemplateId;
   init(scene: THREE.Scene, bus: AudioBusLike): void;
   update(dt: number, time: number): void;
   dispose(): void;
   getParams(): TweakpaneSchema;
+  getActions?(): TemplateAction[];
 }
 
 export type CubeResolution = 256 | 512 | 1024 | 2048;
@@ -34,6 +40,7 @@ export interface AppState {
   showFisheyeInset: boolean;
   domeCubeResolution: CubeResolution;
   fov: number;
+  firstPersonHeight: number;
 }
 
 export interface TemplateAudio {
