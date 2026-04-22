@@ -2,15 +2,19 @@ import type { AudioBusLike } from '../../types';
 
 export class Video360Audio {
   private source: MediaElementAudioSourceNode | null = null;
+  private sourceVideo: HTMLVideoElement | null = null;
   private gain: GainNode | null = null;
 
   constructor(private bus: AudioBusLike) {}
 
   attachVideo(video: HTMLVideoElement) {
-    this.detach();
+    this.disconnectGraph();
     const ctx = this.bus.context;
     try {
-      this.source = ctx.createMediaElementSource(video);
+      if (!this.source || this.sourceVideo !== video) {
+        this.source = ctx.createMediaElementSource(video);
+        this.sourceVideo = video;
+      }
       this.gain = ctx.createGain();
       this.gain.gain.value = 0.9;
       this.source.connect(this.gain);
@@ -20,12 +24,19 @@ export class Video360Audio {
     }
   }
 
-  detach() {
+  private disconnectGraph() {
     this.source?.disconnect();
     this.gain?.disconnect();
-    this.source = null;
     this.gain = null;
   }
 
-  dispose() { this.detach(); }
+  detach() {
+    this.disconnectGraph();
+  }
+
+  dispose() {
+    this.disconnectGraph();
+    this.source = null;
+    this.sourceVideo = null;
+  }
 }
