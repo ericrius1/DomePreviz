@@ -29,7 +29,7 @@ export class TweakpaneUI {
 
     const cfg = this.pane.addFolder({ title: 'Config' });
     cfg.addBinding(appState, 'domeCubeResolution', {
-      options: { '256': 256, '512': 512, '1024': 1024, '2048': 2048 },
+      options: { '256': 256, '512': 512, '1024': 1024, '2048': 2048, '4096': 4096, '8192': 8192 },
     }).on('change', (ev) => actions.onCubeResolutionChange(ev.value as CubeResolution));
     cfg.addBinding(appState, 'projectionMode', {
       options: { Hemisphere: 'hemisphere', 'Fulldome (squash)': 'fulldome' },

@@ -34,7 +34,7 @@ document.body.appendChild(vrBtn);
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 1000);
 const cameraController = new CameraController(camera, canvas);
 
-const INITIAL_CUBE_RES = 1024;
+const INITIAL_CUBE_RES = 4096;
 const domeCubeRT = new CubeRenderTarget(INITIAL_CUBE_RES, {
   generateMipmaps: false,
 });

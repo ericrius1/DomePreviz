@@ -20,7 +20,7 @@ export interface TemplateAction {
   run(): void;
 }
 
-export type CubeResolution = 256 | 512 | 1024 | 2048;
+export type CubeResolution = 256 | 512 | 1024 | 2048 | 4096 | 8192;
 
 export interface AppState {
   cameraMode: CameraMode;
