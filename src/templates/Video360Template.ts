@@ -24,12 +24,17 @@ export class Video360Template {
   // main.ts wires this to auto-start the share upload.
   onFileLoaded?: (file: File) => void;
 
+  onSourceResolutionChange?: (label: string) => void;
+
   params = {
     play: true,
     loop: true,
     fileLabel: '(none loaded)',
-    sourceResolution: '(none)',
   };
+
+  private setSourceResolution(label: string) {
+    this.onSourceResolutionChange?.(label);
+  }
 
   constructor() {
     this.video = document.createElement('video');
@@ -101,7 +106,7 @@ export class Video360Template {
     this.video.addEventListener('loadeddata', () => {
       if (this._bus && this.audio) this.audio.attachVideo(this.video);
       if (this.params.play) this.video.play().catch(() => { /* autoplay blocked */ });
-      this.params.sourceResolution = `${this.video.videoWidth}×${this.video.videoHeight}`;
+      this.setSourceResolution(`${this.video.videoWidth}×${this.video.videoHeight}`);
       if (this.videoTexture) this.onEquirectSource?.(this.videoTexture);
     }, { once: true });
   }
@@ -125,7 +130,7 @@ export class Video360Template {
       }
       if (!this.video.paused) this.video.pause();
       this.params.fileLabel = '(shared)';
-      this.params.sourceResolution = `${img.width}×${img.height}`;
+      this.setSourceResolution(`${img.width}×${img.height}`);
       if (this.dropzone) this.dropzone.style.display = 'none';
       this.onEquirectSource?.(tex);
     };
@@ -147,7 +152,7 @@ export class Video360Template {
     this.video.addEventListener('loadeddata', () => {
       if (this._bus && this.audio) this.audio.attachVideo(this.video);
       if (this.params.play) this.video.play().catch(() => { /* autoplay blocked */ });
-      this.params.sourceResolution = `${this.video.videoWidth}×${this.video.videoHeight}`;
+      this.setSourceResolution(`${this.video.videoWidth}×${this.video.videoHeight}`);
       if (this.videoTexture) this.onEquirectSource?.(this.videoTexture);
     }, { once: true });
   }
@@ -172,7 +177,7 @@ export class Video360Template {
       }
       if (!this.video.paused) this.video.pause();
       this.params.fileLabel = file.name;
-      this.params.sourceResolution = `${img.width}×${img.height}`;
+      this.setSourceResolution(`${img.width}×${img.height}`);
       if (this.dropzone) this.dropzone.style.display = 'none';
       this.onEquirectSource?.(tex);
       URL.revokeObjectURL(url);
@@ -227,7 +232,7 @@ export class Video360Template {
     this.audio?.detach();
     this.currentFile = null;
     this.params.fileLabel = '(none loaded)';
-    this.params.sourceResolution = '(none)';
+    this.setSourceResolution('(none)');
     if (this.dropzone) this.dropzone.style.display = '';
     this.onEquirectSource?.(null);
   }

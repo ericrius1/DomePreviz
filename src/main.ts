@@ -11,7 +11,7 @@ import { TweakpaneUI } from './ui/TweakpaneUI';
 import { FisheyeInset } from './ui/FisheyeInset';
 import { XRControllers } from './xr/XRControllers';
 import { createUploadUI } from './share/shareUI';
-import type { AppState, CameraMode, CubeResolution, ProjectionMode } from './types';
+import type { AppState, CameraMode, ProjectionMode } from './types';
 
 const shareIdMatch = window.location.pathname.match(/^\/v\/([a-zA-Z0-9_-]+)$/);
 const shareId = shareIdMatch ? shareIdMatch[1] : null;
@@ -34,8 +34,8 @@ document.body.appendChild(vrBtn);
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 1000);
 const cameraController = new CameraController(camera, canvas);
 
-const INITIAL_CUBE_RES = 4096;
-const domeCubeRT = new CubeRenderTarget(INITIAL_CUBE_RES, {
+const CUBE_RES = 4096;
+const domeCubeRT = new CubeRenderTarget(CUBE_RES, {
   generateMipmaps: false,
 });
 const domeCubeCamera = new THREE.CubeCamera(0.05, 2000, domeCubeRT);
@@ -59,7 +59,6 @@ const state: AppState = {
   cameraMode: 'first-person',
   projectionMode: 'fulldome',
   showFisheyeInset: true,
-  domeCubeResolution: INITIAL_CUBE_RES,
   domeRadius: DOME_RADIUS,
   fov: 60,
   firstPersonHeight: 1.6,
@@ -85,9 +84,17 @@ function setEquirectSource(tex: THREE.Texture | null) {
   }
 }
 
+const sourceResLabel = document.createElement('div');
+sourceResLabel.className = 'source-resolution-hud';
+sourceResLabel.textContent = 'Source: (none)';
+document.body.appendChild(sourceResLabel);
+
 const template = new Video360Template();
 template.setViewerMode(viewerMode);
 template.onEquirectSource = (tex) => setEquirectSource(tex);
+template.onSourceResolutionChange = (label) => {
+  sourceResLabel.textContent = `Source: ${label}`;
+};
 template.init(dome.templateScene, bus);
 
 function setProjectionMode(m: ProjectionMode) {
@@ -95,12 +102,6 @@ function setProjectionMode(m: ProjectionMode) {
   domeMaterial.setProjectionMode(m);
   domeMaterialEquirect?.setProjectionMode(m);
   fisheye.setProjectionMode(m);
-}
-
-function setCubeResolution(res: CubeResolution) {
-  if (res === state.domeCubeResolution) return;
-  state.domeCubeResolution = res;
-  domeCubeRT.setSize(res, res);
 }
 
 const presets: Record<1 | 2, { pos: THREE.Vector3; target: THREE.Vector3 } | null> = { 1: null, 2: null };
@@ -118,7 +119,6 @@ ui = new TweakpaneUI(state, {
     }
   },
   onProjectionModeChange: (m) => setProjectionMode(m),
-  onCubeResolutionChange: (v) => setCubeResolution(v),
   onFirstPersonHeightChange: (h) => cameraController.setHeight(h),
   onDomeRadiusChange: (r) => {
     state.domeRadius = r;

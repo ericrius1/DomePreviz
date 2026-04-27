@@ -20,13 +20,10 @@ export interface TemplateAction {
   run(): void;
 }
 
-export type CubeResolution = 256 | 512 | 1024 | 2048 | 4096 | 8192;
-
 export interface AppState {
   cameraMode: CameraMode;
   projectionMode: ProjectionMode;
   showFisheyeInset: boolean;
-  domeCubeResolution: CubeResolution;
   domeRadius: number;
   fov: number;
   firstPersonHeight: number;

@@ -1,6 +1,6 @@
 import { Pane } from 'tweakpane';
 import type { FolderApi } from '@tweakpane/core';
-import type { AppState, CameraMode, CubeResolution, ProjectionMode, TemplateAction, TweakpaneSchema } from '../types';
+import type { AppState, CameraMode, ProjectionMode, TemplateAction, TweakpaneSchema } from '../types';
 
 interface Disposable { dispose(): void; }
 
@@ -14,7 +14,6 @@ export interface TweakpaneUIActions {
   onPresetSave: (slot: 1 | 2) => void;
   onPresetRecall: (slot: 1 | 2) => void;
   onProjectionModeChange: (m: ProjectionMode) => void;
-  onCubeResolutionChange: (v: CubeResolution) => void;
   onFirstPersonHeightChange: (h: number) => void;
   onDomeRadiusChange: (r: number) => void;
 }
@@ -28,9 +27,6 @@ export class TweakpaneUI {
     this.pane = new Pane({ title: 'Dome Previs', expanded: true });
 
     const cfg = this.pane.addFolder({ title: 'Config' });
-    cfg.addBinding(appState, 'domeCubeResolution', {
-      options: { '256': 256, '512': 512, '1024': 1024, '2048': 2048, '4096': 4096, '8192': 8192 },
-    }).on('change', (ev) => actions.onCubeResolutionChange(ev.value as CubeResolution));
     cfg.addBinding(appState, 'projectionMode', {
       options: { Hemisphere: 'hemisphere', 'Fulldome (squash)': 'fulldome' },
     }).on('change', (ev) => actions.onProjectionModeChange(ev.value as ProjectionMode));

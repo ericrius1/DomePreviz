@@ -2,6 +2,21 @@
 html, body, #app { margin: 0; padding: 0; height: 100%; background: #0a0a0f; }
 #view { display: block; width: 100vw; height: 100vh; }
 
+.source-resolution-hud {
+  position: fixed;
+  left: 16px;
+  top: 16px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(20, 20, 28, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(230, 235, 245, 0.92);
+  font: 500 0.85rem ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  z-index: 6;
+}
+
 #fisheye-frame {
   position: fixed;
   right: 16px;
