@@ -27,6 +27,7 @@ export interface AppState {
   projectionMode: ProjectionMode;
   showFisheyeInset: boolean;
   domeCubeResolution: CubeResolution;
+  domeRadius: number;
   fov: number;
   firstPersonHeight: number;
 }

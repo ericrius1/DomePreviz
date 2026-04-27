@@ -2,7 +2,7 @@ import './style.css';
 import * as THREE from 'three';
 import { WebGPURenderer, CubeRenderTarget } from 'three/webgpu';
 import { VRButton } from 'three/examples/jsm/webxr/VRButton.js';
-import { DomeScene } from './app/DomeScene';
+import { DomeScene, DOME_RADIUS } from './app/DomeScene';
 import { DomeMaterial, DomeMaterialEquirect } from './app/DomeProjection';
 import { CameraController } from './app/CameraController';
 import { AudioBus } from './audio/AudioBus';
@@ -60,6 +60,7 @@ const state: AppState = {
   projectionMode: 'fulldome',
   showFisheyeInset: true,
   domeCubeResolution: INITIAL_CUBE_RES,
+  domeRadius: DOME_RADIUS,
   fov: 60,
   firstPersonHeight: 1.6,
 };
@@ -119,6 +120,11 @@ ui = new TweakpaneUI(state, {
   onProjectionModeChange: (m) => setProjectionMode(m),
   onCubeResolutionChange: (v) => setCubeResolution(v),
   onFirstPersonHeightChange: (h) => cameraController.setHeight(h),
+  onDomeRadiusChange: (r) => {
+    state.domeRadius = r;
+    dome.setRadius(r);
+    cameraController.setDomeRadius(r);
+  },
 });
 ui.bindTemplateParams(template);
 

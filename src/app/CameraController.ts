@@ -10,6 +10,7 @@ const WALL_BUFFER = 0.5;
 export class CameraController {
   camera: THREE.PerspectiveCamera;
   height = EYE_HEIGHT;
+  domeRadius = DOME_RADIUS;
   private orbit: OrbitControls | null = null;
   private pointerLock: PointerLockControls | null = null;
   private domElement: HTMLElement;
@@ -54,6 +55,10 @@ export class CameraController {
     }
   }
 
+  setDomeRadius(r: number) {
+    this.domeRadius = r;
+  }
+
   private requestLock = () => {
     this.pointerLock?.lock();
   };
@@ -92,7 +97,7 @@ export class CameraController {
     this.pointerLock!.moveForward((fwd / len) * distance);
     this.pointerLock!.moveRight((strafe / len) * distance);
 
-    const maxR = DOME_RADIUS - WALL_BUFFER;
+    const maxR = this.domeRadius - WALL_BUFFER;
     const px = this.camera.position.x;
     const pz = this.camera.position.z;
     const r = Math.hypot(px, pz);

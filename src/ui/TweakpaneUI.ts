@@ -16,6 +16,7 @@ export interface TweakpaneUIActions {
   onProjectionModeChange: (m: ProjectionMode) => void;
   onCubeResolutionChange: (v: CubeResolution) => void;
   onFirstPersonHeightChange: (h: number) => void;
+  onDomeRadiusChange: (r: number) => void;
 }
 
 export class TweakpaneUI {
@@ -33,6 +34,8 @@ export class TweakpaneUI {
     cfg.addBinding(appState, 'projectionMode', {
       options: { Hemisphere: 'hemisphere', 'Fulldome (squash)': 'fulldome' },
     }).on('change', (ev) => actions.onProjectionModeChange(ev.value as ProjectionMode));
+    cfg.addBinding(appState, 'domeRadius', { label: 'Dome Size (m)', min: 2, max: 50, step: 0.1 })
+      .on('change', (ev) => actions.onDomeRadiusChange(ev.value));
     cfg.addBinding(appState, 'showFisheyeInset');
 
     this.templateFolder = this.pane.addFolder({ title: '360 Media' });
