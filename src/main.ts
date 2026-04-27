@@ -137,7 +137,21 @@ ui.bindTemplateParams(template);
 
 if (!viewerMode) {
   const uploadUI = createUploadUI();
-  template.onFileLoaded = (file) => uploadUI.startUpload(file);
+  // Auto-upload was contending with playback (same File read by uploader and
+  // <video> simultaneously). Make sharing explicit so previewing stays smooth.
+  const shareBtn = document.createElement('button');
+  shareBtn.className = 'share-button';
+  shareBtn.textContent = 'Share';
+  shareBtn.style.display = 'none';
+  document.body.appendChild(shareBtn);
+
+  template.onFileLoaded = () => { shareBtn.style.display = ''; };
+  template.onCleared = () => { shareBtn.style.display = 'none'; };
+  shareBtn.addEventListener('click', () => {
+    if (!template.currentFile) return;
+    shareBtn.style.display = 'none';
+    uploadUI.startUpload(template.currentFile);
+  });
 }
 
 setProjectionMode(state.projectionMode);

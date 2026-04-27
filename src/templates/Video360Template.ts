@@ -21,8 +21,11 @@ export class Video360Template {
   onEquirectSource?: (tex: THREE.Texture | null) => void;
 
   // Fired after a user-provided File is loaded into the sphere (editor mode only).
-  // main.ts wires this to auto-start the share upload.
+  // main.ts wires this to reveal the Share button.
   onFileLoaded?: (file: File) => void;
+
+  // Fired when the loaded file is cleared. main.ts uses this to hide the Share button.
+  onCleared?: () => void;
 
   onSourceResolutionChange?: (label: string) => void;
 
@@ -263,6 +266,7 @@ export class Video360Template {
     this.setSourceResolution('(none)');
     if (this.dropzone) this.dropzone.style.display = '';
     this.onEquirectSource?.(null);
+    this.onCleared?.();
   }
 
   getActions(): TemplateAction[] {
