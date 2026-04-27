@@ -3,10 +3,10 @@ import * as THREE from 'three';
 import { WebGPURenderer, CubeRenderTarget } from 'three/webgpu';
 import { VRButton } from 'three/examples/jsm/webxr/VRButton.js';
 import { DomeScene, DOME_RADIUS } from './app/DomeScene';
-import { DomeMaterial, DomeMaterialEquirect } from './app/DomeProjection';
+import { DomeMaterial, DomeMaterialEquirect, DomeMaterialFisheye } from './app/DomeProjection';
 import { CameraController } from './app/CameraController';
 import { AudioBus } from './audio/AudioBus';
-import { Video360Template } from './templates/Video360Template';
+import { Video360Template, type Video360PlaybackStats, type Video360Source } from './templates/Video360Template';
 import { TweakpaneUI } from './ui/TweakpaneUI';
 import { FisheyeInset } from './ui/FisheyeInset';
 import { XRControllers } from './xr/XRControllers';
@@ -21,9 +21,9 @@ const canvas = document.createElement('canvas');
 canvas.id = 'view';
 document.querySelector<HTMLDivElement>('#app')!.appendChild(canvas);
 
-const renderer = new WebGPURenderer({ canvas, antialias: true, forceWebGL: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
+const defaultPixelRatio = () => Math.min(window.devicePixelRatio || 1, 2);
+
+const renderer = new WebGPURenderer({ canvas, antialias: false, forceWebGL: true });
 renderer.xr.enabled = true;
 await renderer.init();
 
@@ -34,7 +34,7 @@ document.body.appendChild(vrBtn);
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 1000);
 const cameraController = new CameraController(camera, canvas);
 
-const CUBE_RES = 2048;
+const CUBE_RES = 1024;
 const domeCubeRT = new CubeRenderTarget(CUBE_RES, {
   generateMipmaps: false,
 });
@@ -46,10 +46,10 @@ const domeMaterial = new DomeMaterial(domeCubeTex);
 const dome = new DomeScene(domeMaterial);
 dome.outerScene.add(domeCubeCamera);
 
-// True while an equirect texture is sampled directly by DomeMaterialEquirect; in
-// that state the cube render target is unread, so skipping the bake removes a
-// 6×CUBE_RES² pass from every frame — the dominant cost at 8K source.
-let equirectActive = false;
+// True while a loaded video/image texture is sampled directly by the dome
+// material. In that state the cube render target is unread, so skipping the
+// bake removes a 6×CUBE_RES² pass from every frame.
+let directSourceActive = false;
 
 const fisheye = new FisheyeInset(domeCubeTex);
 
@@ -64,6 +64,7 @@ const state: AppState = {
   cameraMode: 'first-person',
   projectionMode: 'fulldome',
   showFisheyeInset: true,
+  performancePreview: false,
   domeRadius: DOME_RADIUS,
   fov: 60,
   firstPersonHeight: 1.6,
@@ -72,23 +73,67 @@ const state: AppState = {
 cameraController.setHeight(state.firstPersonHeight);
 
 let ui: TweakpaneUI | null = null;
-let domeMaterialEquirect: DomeMaterialEquirect | null = null;
+let domeMaterialDirect: DomeMaterialEquirect | DomeMaterialFisheye | null = null;
+let autoPerformancePreview = false;
+let autoDisabledFisheye = false;
+let sourceHudBase = 'Source: (none)';
+let sourceHudStats = '';
+let sourceHudWarn = false;
 
-function setEquirectSource(tex: THREE.Texture | null) {
-  if (tex) {
-    domeMaterialEquirect?.dispose();
-    domeMaterialEquirect = new DomeMaterialEquirect(tex);
-    domeMaterialEquirect.setProjectionMode(state.projectionMode);
-    dome.dome.material = domeMaterialEquirect;
-    fisheye.setEquirectSource(tex);
-    equirectActive = true;
+function syncRendererSize() {
+  renderer.setPixelRatio(state.performancePreview ? 1 : defaultPixelRatio());
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+syncRendererSize();
+
+function setPerformancePreview(on: boolean, auto = false) {
+  autoPerformancePreview = auto ? on : false;
+  state.performancePreview = on;
+  if (on && state.showFisheyeInset) {
+    state.showFisheyeInset = false;
+    autoDisabledFisheye = auto;
+  } else if (!on && autoDisabledFisheye) {
+    state.showFisheyeInset = true;
+    autoDisabledFisheye = false;
+  } else if (!auto) {
+    autoDisabledFisheye = false;
+  }
+  syncRendererSize();
+  ui?.pane.refresh();
+}
+
+function updateSourceHud() {
+  sourceResLabel.textContent = sourceHudStats ? `${sourceHudBase}\n${sourceHudStats}` : sourceHudBase;
+  sourceResLabel.classList.toggle('source-resolution-hud-warn', sourceHudWarn);
+}
+
+function setDirectSource(source: Video360Source | null) {
+  domeMaterialDirect?.dispose();
+  domeMaterialDirect = null;
+  sourceHudStats = '';
+  sourceHudWarn = false;
+
+  if (source) {
+    domeMaterialDirect = source.projection === 'fisheye'
+      ? new DomeMaterialFisheye(source.texture)
+      : new DomeMaterialEquirect(source.texture);
+    domeMaterialDirect.setProjectionMode(state.projectionMode);
+    dome.dome.material = domeMaterialDirect;
+    fisheye.setSource(source.texture, source.projection);
+    directSourceActive = true;
+    if (source.highRes) {
+      setPerformancePreview(true, true);
+    } else if (autoPerformancePreview) {
+      setPerformancePreview(false, true);
+    }
   } else {
     dome.dome.material = domeMaterial;
-    fisheye.setEquirectSource(null);
-    domeMaterialEquirect?.dispose();
-    domeMaterialEquirect = null;
-    equirectActive = false;
+    fisheye.setSource(null, null);
+    directSourceActive = false;
+    if (autoPerformancePreview) setPerformancePreview(false, true);
   }
+  updateSourceHud();
 }
 
 const sourceResLabel = document.createElement('div');
@@ -98,16 +143,30 @@ document.body.appendChild(sourceResLabel);
 
 const template = new Video360Template();
 template.setViewerMode(viewerMode);
-template.onEquirectSource = (tex) => setEquirectSource(tex);
+template.onSourceChange = (source) => setDirectSource(source);
 template.onSourceResolutionChange = (label) => {
-  sourceResLabel.textContent = `Source: ${label}`;
+  sourceHudBase = `Source: ${label}`;
+  updateSourceHud();
+};
+template.onPlaybackStatsChange = (stats: Video360PlaybackStats | null) => {
+  if (!stats || stats.totalVideoFrames === 0) {
+    sourceHudStats = '';
+    sourceHudWarn = false;
+    updateSourceHud();
+    return;
+  }
+  const pct = Math.round(stats.dropRate * 100);
+  const decode = stats.processingDurationMs === null ? 'n/a' : `${stats.processingDurationMs.toFixed(1)}ms`;
+  sourceHudStats = `Dropped: ${stats.droppedVideoFrames}/${stats.totalVideoFrames} (${pct}%) · decode ${decode}`;
+  sourceHudWarn = stats.dropRate > 0.05 || stats.droppedThisInterval > 5;
+  updateSourceHud();
 };
 template.init(dome.templateScene, bus);
 
 function setProjectionMode(m: ProjectionMode) {
   state.projectionMode = m;
   domeMaterial.setProjectionMode(m);
-  domeMaterialEquirect?.setProjectionMode(m);
+  domeMaterialDirect?.setProjectionMode(m);
   fisheye.setProjectionMode(m);
 }
 
@@ -126,6 +185,7 @@ ui = new TweakpaneUI(state, {
     }
   },
   onProjectionModeChange: (m) => setProjectionMode(m),
+  onPerformancePreviewChange: (on) => setPerformancePreview(on),
   onFirstPersonHeightChange: (h) => cameraController.setHeight(h),
   onDomeRadiusChange: (r) => {
     state.domeRadius = r;
@@ -136,7 +196,24 @@ ui = new TweakpaneUI(state, {
 ui.bindTemplateParams(template);
 
 if (!viewerMode) {
-  const uploadUI = createUploadUI();
+  let uploadPausedFile: File | null = null;
+  let resumeAfterUpload = false;
+  const uploadUI = createUploadUI({
+    onUploadStart: (file) => {
+      if (template.currentFile !== file) return;
+      uploadPausedFile = file;
+      resumeAfterUpload = template.pauseForExternalWork();
+      ui?.pane.refresh();
+    },
+    onUploadEnd: (file) => {
+      if (uploadPausedFile === file && resumeAfterUpload && template.currentFile === file) {
+        template.setPlaybackEnabled(true);
+      }
+      uploadPausedFile = null;
+      resumeAfterUpload = false;
+      ui?.pane.refresh();
+    },
+  });
   // Auto-upload was contending with playback (same File read by uploader and
   // <video> simultaneously). Make sharing explicit so previewing stays smooth.
   const shareBtn = document.createElement('button');
@@ -224,23 +301,27 @@ function updateAudioListener() {
   } else {
     (l as unknown as { setPosition: (x: number, y: number, z: number) => void }).setPosition?.(p.x, p.y, p.z);
   }
-  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+  listenerForward.set(0, 0, -1).applyQuaternion(camera.quaternion);
+  listenerUp.set(0, 1, 0).applyQuaternion(camera.quaternion);
   if (l.forwardX) {
-    l.forwardX.value = fwd.x; l.forwardY.value = fwd.y; l.forwardZ.value = fwd.z;
-    l.upX.value = up.x; l.upY.value = up.y; l.upZ.value = up.z;
+    l.forwardX.value = listenerForward.x; l.forwardY.value = listenerForward.y; l.forwardZ.value = listenerForward.z;
+    l.upX.value = listenerUp.x; l.upY.value = listenerUp.y; l.upZ.value = listenerUp.z;
   } else {
     (l as unknown as { setOrientation: (fx: number, fy: number, fz: number, ux: number, uy: number, uz: number) => void })
-      .setOrientation?.(fwd.x, fwd.y, fwd.z, up.x, up.y, up.z);
+      .setOrientation?.(listenerForward.x, listenerForward.y, listenerForward.z, listenerUp.x, listenerUp.y, listenerUp.z);
   }
 }
 
 window.addEventListener('resize', () => {
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  syncRendererSize();
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
 });
 
+const listenerForward = new THREE.Vector3();
+const listenerUp = new THREE.Vector3();
+const FISHEYE_PERF_INTERVAL = 0.1;
+let lastFisheyeRenderTime = -Infinity;
 const timer = new THREE.Timer();
 timer.connect(document);
 function tick() {
@@ -256,7 +337,7 @@ function tick() {
   template.update(dt, time);
   updateAudioListener();
 
-  if (!equirectActive) {
+  if (!directSourceActive) {
     domeCubeCamera.update(renderer as unknown as THREE.WebGLRenderer, dome.templateScene);
   }
 
@@ -265,9 +346,13 @@ function tick() {
   const wantsFisheye = !inXR && state.showFisheyeInset;
   if (wantsFisheye) {
     fisheye.setVisible(true);
-    fisheye.render(renderer as unknown as THREE.WebGLRenderer);
+    if (!state.performancePreview || time - lastFisheyeRenderTime >= FISHEYE_PERF_INTERVAL) {
+      fisheye.render(renderer as unknown as THREE.WebGLRenderer);
+      lastFisheyeRenderTime = time;
+    }
   } else {
     fisheye.setVisible(false);
+    lastFisheyeRenderTime = -Infinity;
   }
 }
 renderer.setAnimationLoop(tick);

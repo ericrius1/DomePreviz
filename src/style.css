@@ -13,8 +13,15 @@ html, body, #app { margin: 0; padding: 0; height: 100%; background: #0a0a0f; }
   color: rgba(230, 235, 245, 0.92);
   font: 500 0.85rem ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.02em;
+  line-height: 1.35;
+  white-space: pre-line;
   pointer-events: none;
   z-index: 6;
+}
+.source-resolution-hud-warn {
+  border-color: rgba(255, 158, 94, 0.38);
+  background: rgba(42, 28, 20, 0.82);
+  color: rgba(255, 229, 190, 0.95);
 }
 
 #fisheye-frame {

@@ -8,10 +8,12 @@ const T: any = TSL;
 const {
   Fn, uniform, vec2, vec3, vec4, float, mix, normalize,
   positionWorld, cubeTexture, texture, atan, acos,
+  sin, cos,
 } = T;
 
 const TWO_PI = 6.283185307179586;
 const PI = 3.141592653589793;
+const HALF_PI = 1.5707963267948966;
 
 // Shared direction computation for a point on the dome surface.
 // Hemisphere mode: sample direction equals surface direction (upper 180° of scene).
@@ -73,5 +75,27 @@ export class DomeMaterialEquirect extends NodeMaterial {
 
   setProjectionMode(m: 'hemisphere' | 'fulldome') {
     this.uProjectionMode.value = m === 'fulldome' ? 1.0 : 0.0;
+  }
+}
+
+// Samples a square 180° fisheye/dome-master texture directly. This is the
+// common output format for fulldome renders such as 8192×8192 masters.
+export class DomeMaterialFisheye extends NodeMaterial {
+  constructor(fisheyeTex: THREE.Texture) {
+    super();
+    this.side = THREE.DoubleSide;
+
+    this.colorNode = Fn(() => {
+      const dir = normalize(positionWorld);
+      const theta = acos(dir.y);
+      const radius = theta.div(HALF_PI).mul(0.5);
+      const phi = atan(dir.z, dir.x);
+      const sampleUv = vec2(cos(phi), sin(phi)).mul(radius).add(0.5);
+      return vec4(texture(fisheyeTex, sampleUv).rgb, float(1.0));
+    })();
+  }
+
+  setProjectionMode(_m: 'hemisphere' | 'fulldome') {
+    // Fisheye dome masters are already projected for the hemisphere surface.
   }
 }

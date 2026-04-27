@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { NodeMaterial } from 'three/webgpu';
 import type { WebGPURenderer } from 'three/webgpu';
 import * as TSL from 'three/tsl';
-import type { ProjectionMode } from '../types';
+import type { ProjectionMode, Video360SourceProjection } from '../types';
 
 type AnyRenderer = THREE.WebGLRenderer | WebGPURenderer;
 
@@ -28,7 +28,11 @@ export class FisheyeInset {
   private frame: HTMLDivElement;
   private visible = true;
   private uProjectionMode = uniform(0.0);
-  private equirectTex: THREE.Texture | null = null;
+  private sourceTex: THREE.Texture | null = null;
+  private sourceProjection: Video360SourceProjection | null = null;
+  private prevScissor = new THREE.Vector4();
+  private prevViewport = new THREE.Vector4();
+  private renderSize = new THREE.Vector2();
 
   constructor(cubeTex: THREE.CubeTexture) {
     this.cubeTex = cubeTex;
@@ -49,12 +53,16 @@ export class FisheyeInset {
     m.depthTest = false;
     m.vertexNode = vec4(positionLocal.xy, float(0.0), float(1.0));
 
-    const { cubeTex, equirectTex, uProjectionMode } = this;
+    const { cubeTex, sourceTex, sourceProjection, uProjectionMode } = this;
 
     m.colorNode = Fn(() => {
       const p = uv().mul(2.0).sub(1.0);
       const r = length(p);
       Discard(r.greaterThan(float(1.0)));
+
+      if (sourceTex && sourceProjection === 'fisheye') {
+        return vec4(texture(sourceTex, uv()).rgb, float(1.0));
+      }
 
       // theta scales by projection mode: hemisphere = r·π/2, fulldome = r·π.
       const theta = r.mul(mix(float(HALF_PI), float(PI), uProjectionMode));
@@ -65,10 +73,10 @@ export class FisheyeInset {
         sin(theta).mul(sin(phi)),
       );
 
-      if (equirectTex) {
+      if (sourceTex && sourceProjection === 'equirect') {
         const u = atan(dir.z, dir.x).div(TWO_PI);
         const v = acos(dir.y).div(PI).oneMinus();
-        return vec4(texture(equirectTex, vec2(u, v)).rgb, float(1.0));
+        return vec4(texture(sourceTex, vec2(u, v)).rgb, float(1.0));
       }
       return vec4(cubeTexture(cubeTex, dir).rgb, float(1.0));
     })();
@@ -80,9 +88,10 @@ export class FisheyeInset {
     this.uProjectionMode.value = m === 'fulldome' ? 1.0 : 0.0;
   }
 
-  setEquirectSource(tex: THREE.Texture | null) {
-    if (this.equirectTex === tex) return;
-    this.equirectTex = tex;
+  setSource(tex: THREE.Texture | null, projection: Video360SourceProjection | null) {
+    if (this.sourceTex === tex && this.sourceProjection === projection) return;
+    this.sourceTex = tex;
+    this.sourceProjection = projection;
     const oldMat = this.mat;
     this.mat = this.buildMaterial();
     this.quad.material = this.mat;
@@ -98,15 +107,12 @@ export class FisheyeInset {
     if (!this.visible) return;
 
     const prevScissorTest = renderer.getScissorTest();
-    const prevScissor = new THREE.Vector4();
-    renderer.getScissor(prevScissor);
-    const prevViewport = new THREE.Vector4();
-    renderer.getViewport(prevViewport);
+    renderer.getScissor(this.prevScissor);
+    renderer.getViewport(this.prevViewport);
     const prevAutoClear = renderer.autoClear;
 
-    const size = new THREE.Vector2();
-    renderer.getSize(size);
-    const x = size.x - INSET_SIZE - INSET_MARGIN;
+    renderer.getSize(this.renderSize);
+    const x = this.renderSize.x - INSET_SIZE - INSET_MARGIN;
     const y = INSET_MARGIN;
 
     renderer.setScissorTest(true);
@@ -116,8 +122,8 @@ export class FisheyeInset {
     renderer.clearDepth();
     renderer.render(this.scene, this.cam);
 
-    renderer.setViewport(prevViewport);
-    renderer.setScissor(prevScissor);
+    renderer.setViewport(this.prevViewport);
+    renderer.setScissor(this.prevScissor);
     renderer.setScissorTest(prevScissorTest);
     renderer.autoClear = prevAutoClear;
   }

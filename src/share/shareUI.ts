@@ -4,7 +4,12 @@ interface UploadUI {
   startUpload(file: File): void;
 }
 
-export function createUploadUI(): UploadUI {
+interface UploadUIHooks {
+  onUploadStart?: (file: File) => void;
+  onUploadEnd?: (file: File) => void;
+}
+
+export function createUploadUI(hooks: UploadUIHooks = {}): UploadUI {
   const bar = document.createElement('div');
   bar.className = 'upload-bar';
   bar.innerHTML = `
@@ -93,6 +98,7 @@ export function createUploadUI(): UploadUI {
 
   function startUpload(file: File) {
     const token = ++activeUploadToken;
+    hooks.onUploadStart?.(file);
     fill.style.width = '0%';
     label.textContent = `Uploading ${file.name}…`;
     showBar();
@@ -117,11 +123,13 @@ export function createUploadUI(): UploadUI {
     shareUpload(file, onProgress)
       .then(({ shareUrl }) => {
         if (token !== activeUploadToken) return;
+        hooks.onUploadEnd?.(file);
         setTimeout(hideBar, 400);
         showSuccessModal(shareUrl);
       })
       .catch((err) => {
         if (token !== activeUploadToken) return;
+        hooks.onUploadEnd?.(file);
         hideBar();
         const msg = err instanceof Error ? err.message : String(err);
         showErrorModal(msg, () => startUpload(file));

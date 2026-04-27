@@ -14,6 +14,7 @@ export interface TweakpaneUIActions {
   onPresetSave: (slot: 1 | 2) => void;
   onPresetRecall: (slot: 1 | 2) => void;
   onProjectionModeChange: (m: ProjectionMode) => void;
+  onPerformancePreviewChange: (on: boolean) => void;
   onFirstPersonHeightChange: (h: number) => void;
   onDomeRadiusChange: (r: number) => void;
 }
@@ -33,6 +34,8 @@ export class TweakpaneUI {
     cfg.addBinding(appState, 'domeRadius', { label: 'Dome Size (m)', min: 2, max: 50, step: 0.1 })
       .on('change', (ev) => actions.onDomeRadiusChange(ev.value));
     cfg.addBinding(appState, 'showFisheyeInset');
+    cfg.addBinding(appState, 'performancePreview', { label: 'Performance Preview' })
+      .on('change', (ev) => actions.onPerformancePreviewChange(ev.value));
 
     this.templateFolder = this.pane.addFolder({ title: '360 Media' });
 
