@@ -2,11 +2,15 @@ import * as THREE from 'three';
 import type { TemplateAction, AudioBusLike, TweakpaneSchema, Video360SourceProjection } from '../types';
 import { Video360Audio } from '../audio/templates/Video360Audio';
 
+const VIDEO_PREVIEW_MAX_EDGE = 6144;
+
 export interface Video360Source {
   texture: THREE.Texture;
   projection: Video360SourceProjection;
   width: number;
   height: number;
+  nativeWidth: number;
+  nativeHeight: number;
   megapixels: number;
   highRes: boolean;
   label: string;
@@ -42,6 +46,11 @@ export class Video360Template {
   private video: HTMLVideoElement;
   private videoObjectUrl: string | null = null;
   private videoTexture: THREE.VideoTexture | null = null;
+  private videoPreviewCanvas: HTMLCanvasElement | null = null;
+  private videoPreviewContext: CanvasRenderingContext2D | null = null;
+  private videoPreviewTexture: THREE.CanvasTexture | null = null;
+  private videoPreviewFrameHandle: number | null = null;
+  private videoPreviewIntervalHandle: number | null = null;
   private imageTexture: THREE.Texture | null = null;
   private material: THREE.MeshBasicMaterial | null = null;
   private sphere: THREE.Mesh | null = null;
@@ -86,6 +95,17 @@ export class Video360Template {
     return width * height >= 24_000_000 || Math.max(width, height) >= 7680;
   }
 
+  private videoPreviewSize(width: number, height: number) {
+    const maxEdge = Math.max(width, height);
+    if (maxEdge <= VIDEO_PREVIEW_MAX_EDGE) return { width, height };
+
+    const scale = VIDEO_PREVIEW_MAX_EDGE / maxEdge;
+    return {
+      width: Math.max(2, Math.round((width * scale) / 2) * 2),
+      height: Math.max(2, Math.round((height * scale) / 2) * 2),
+    };
+  }
+
   private configureTexture(tex: THREE.Texture, projection: Video360SourceProjection) {
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.wrapS = projection === 'equirect' ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
@@ -96,15 +116,140 @@ export class Video360Template {
     tex.needsUpdate = true;
   }
 
-  private publishSource(tex: THREE.Texture, width: number, height: number) {
-    const projection = this.detectProjection(width, height);
-    const megapixels = (width * height) / 1_000_000;
-    const highRes = this.isHighResSource(width, height);
+  private publishSource(
+    tex: THREE.Texture,
+    nativeWidth: number,
+    nativeHeight: number,
+    displayWidth = nativeWidth,
+    displayHeight = nativeHeight,
+  ) {
+    const projection = this.detectProjection(nativeWidth, nativeHeight);
+    const megapixels = (nativeWidth * nativeHeight) / 1_000_000;
+    const highRes = this.isHighResSource(nativeWidth, nativeHeight);
     const projectionLabel = projection === 'fisheye' ? 'fisheye dome master' : 'equirect';
-    const label = `${width}×${height} ${projectionLabel}`;
+    const previewLabel = displayWidth !== nativeWidth || displayHeight !== nativeHeight
+      ? ` · displaying ${displayWidth}×${displayHeight}`
+      : '';
+    const label = `${nativeWidth}×${nativeHeight} ${projectionLabel}${previewLabel}`;
     this.configureTexture(tex, projection);
     this.setSourceResolution(`${label}${highRes ? ' · performance preview' : ''}`);
-    this.onSourceChange?.({ texture: tex, projection, width, height, megapixels, highRes, label });
+    this.onSourceChange?.({
+      texture: tex,
+      projection,
+      width: displayWidth,
+      height: displayHeight,
+      nativeWidth,
+      nativeHeight,
+      megapixels,
+      highRes,
+      label,
+    });
+  }
+
+  private publishVideoSource() {
+    if (!this.videoTexture) return;
+
+    const nativeWidth = this.video.videoWidth;
+    const nativeHeight = this.video.videoHeight;
+    const display = this.videoPreviewSize(nativeWidth, nativeHeight);
+    if (display.width === nativeWidth && display.height === nativeHeight) {
+      this.disposeVideoPreviewTexture();
+      this.publishSource(this.videoTexture, nativeWidth, nativeHeight);
+      return;
+    }
+
+    const previewTex = this.ensureVideoPreviewTexture(display.width, display.height);
+    if (!this.drawVideoPreviewFrame()) {
+      this.disposeVideoPreviewTexture();
+      this.publishSource(this.videoTexture, nativeWidth, nativeHeight);
+      return;
+    }
+    this.startVideoPreviewUpdates();
+    this.publishSource(previewTex, nativeWidth, nativeHeight, display.width, display.height);
+  }
+
+  private ensureVideoPreviewTexture(width: number, height: number): THREE.Texture {
+    if (!this.videoPreviewCanvas) {
+      this.videoPreviewCanvas = document.createElement('canvas');
+      this.videoPreviewContext = this.videoPreviewCanvas.getContext('2d', { alpha: false });
+    }
+
+    if (!this.videoPreviewContext || !this.videoPreviewCanvas) {
+      return this.videoTexture as THREE.VideoTexture;
+    }
+
+    if (this.videoPreviewCanvas.width !== width || this.videoPreviewCanvas.height !== height) {
+      this.videoPreviewCanvas.width = width;
+      this.videoPreviewCanvas.height = height;
+      this.videoPreviewContext.imageSmoothingEnabled = true;
+      this.videoPreviewContext.imageSmoothingQuality = 'medium';
+      this.videoPreviewTexture?.dispose();
+      this.videoPreviewTexture = null;
+    }
+
+    if (!this.videoPreviewTexture) {
+      this.videoPreviewTexture = new THREE.CanvasTexture(this.videoPreviewCanvas);
+    }
+
+    return this.videoPreviewTexture;
+  }
+
+  private drawVideoPreviewFrame(): boolean {
+    if (!this.videoPreviewCanvas || !this.videoPreviewContext || !this.videoPreviewTexture) return false;
+    if (this.video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return false;
+
+    try {
+      this.videoPreviewContext.drawImage(
+        this.video,
+        0,
+        0,
+        this.videoPreviewCanvas.width,
+        this.videoPreviewCanvas.height,
+      );
+    } catch (err) {
+      console.warn('Video360: 6K preview draw failed; falling back to native texture.', err);
+      return false;
+    }
+    this.videoPreviewTexture.needsUpdate = true;
+    return true;
+  }
+
+  private startVideoPreviewUpdates() {
+    const v = this.video as VideoFrameCallbackVideo;
+    this.stopVideoPreviewUpdates();
+
+    if (typeof v.requestVideoFrameCallback !== 'function') {
+      this.videoPreviewIntervalHandle = window.setInterval(() => {
+        if (!this.video.paused && !this.video.ended) this.drawVideoPreviewFrame();
+      }, 1000 / 24);
+      return;
+    }
+
+    const update = () => {
+      this.drawVideoPreviewFrame();
+      this.videoPreviewFrameHandle = v.requestVideoFrameCallback?.(update) ?? null;
+    };
+    this.videoPreviewFrameHandle = v.requestVideoFrameCallback(update);
+  }
+
+  private stopVideoPreviewUpdates() {
+    const v = this.video as VideoFrameCallbackVideo;
+    if (this.videoPreviewFrameHandle !== null && typeof v.cancelVideoFrameCallback === 'function') {
+      v.cancelVideoFrameCallback(this.videoPreviewFrameHandle);
+    }
+    this.videoPreviewFrameHandle = null;
+    if (this.videoPreviewIntervalHandle !== null) {
+      window.clearInterval(this.videoPreviewIntervalHandle);
+      this.videoPreviewIntervalHandle = null;
+    }
+  }
+
+  private disposeVideoPreviewTexture() {
+    this.stopVideoPreviewUpdates();
+    this.videoPreviewTexture?.dispose();
+    this.videoPreviewTexture = null;
+    this.videoPreviewCanvas = null;
+    this.videoPreviewContext = null;
   }
 
   // Surfaces decode-quality hints once playback starts. Software decode of 8K
@@ -229,6 +374,7 @@ export class Video360Template {
   private loadVideoUrl(url: string) {
     this.stopPlaybackMonitors();
     this.onSourceChange?.(null);
+    this.disposeVideoPreviewTexture();
     if (this.videoObjectUrl) { URL.revokeObjectURL(this.videoObjectUrl); this.videoObjectUrl = null; }
     this.video.crossOrigin = 'anonymous';
     this.video.src = url;
@@ -242,7 +388,7 @@ export class Video360Template {
     this.video.addEventListener('loadeddata', () => {
       if (this._bus && this.audio) this.audio.attachVideo(this.video);
       if (this.params.play) this.video.play().catch(() => { /* autoplay blocked */ });
-      if (this.videoTexture) this.publishSource(this.videoTexture, this.video.videoWidth, this.video.videoHeight);
+      this.publishVideoSource();
       this.monitorDecodeHealth();
     }, { once: true });
   }
@@ -250,6 +396,7 @@ export class Video360Template {
   private loadImageUrl(url: string) {
     this.stopPlaybackMonitors();
     this.onSourceChange?.(null);
+    this.disposeVideoPreviewTexture();
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
@@ -271,6 +418,7 @@ export class Video360Template {
   private loadVideoFile(file: File) {
     this.stopPlaybackMonitors();
     this.onSourceChange?.(null);
+    this.disposeVideoPreviewTexture();
     if (this.videoObjectUrl) URL.revokeObjectURL(this.videoObjectUrl);
     const url = URL.createObjectURL(file);
     this.videoObjectUrl = url;
@@ -285,7 +433,7 @@ export class Video360Template {
     this.video.addEventListener('loadeddata', () => {
       if (this._bus && this.audio) this.audio.attachVideo(this.video);
       if (this.params.play) this.video.play().catch(() => { /* autoplay blocked */ });
-      if (this.videoTexture) this.publishSource(this.videoTexture, this.video.videoWidth, this.video.videoHeight);
+      this.publishVideoSource();
       this.monitorDecodeHealth();
     }, { once: true });
   }
@@ -293,6 +441,7 @@ export class Video360Template {
   private loadImageFile(file: File) {
     this.stopPlaybackMonitors();
     this.onSourceChange?.(null);
+    this.disposeVideoPreviewTexture();
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -359,6 +508,7 @@ export class Video360Template {
 
   clear(): void {
     this.stopPlaybackMonitors();
+    this.disposeVideoPreviewTexture();
     this.video.pause();
     this.video.removeAttribute('src');
     this.video.load();
@@ -387,6 +537,7 @@ export class Video360Template {
   dispose(): void {
     this.stopPlaybackMonitors();
     this.onSourceChange?.(null);
+    this.disposeVideoPreviewTexture();
     window.removeEventListener('dragover', this.onDragOver);
     window.removeEventListener('dragleave', this.onDragLeave);
     window.removeEventListener('drop', this.onDrop);
