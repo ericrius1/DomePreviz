@@ -34,7 +34,7 @@ document.body.appendChild(vrBtn);
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 1000);
 const cameraController = new CameraController(camera, canvas);
 
-const CUBE_RES = 4096;
+const CUBE_RES = 2048;
 const domeCubeRT = new CubeRenderTarget(CUBE_RES, {
   generateMipmaps: false,
 });
@@ -45,6 +45,11 @@ const domeCubeTex = domeCubeRT.texture as unknown as THREE.CubeTexture;
 const domeMaterial = new DomeMaterial(domeCubeTex);
 const dome = new DomeScene(domeMaterial);
 dome.outerScene.add(domeCubeCamera);
+
+// True while an equirect texture is sampled directly by DomeMaterialEquirect; in
+// that state the cube render target is unread, so skipping the bake removes a
+// 6×CUBE_RES² pass from every frame — the dominant cost at 8K source.
+let equirectActive = false;
 
 const fisheye = new FisheyeInset(domeCubeTex);
 
@@ -76,11 +81,13 @@ function setEquirectSource(tex: THREE.Texture | null) {
     domeMaterialEquirect.setProjectionMode(state.projectionMode);
     dome.dome.material = domeMaterialEquirect;
     fisheye.setEquirectSource(tex);
+    equirectActive = true;
   } else {
     dome.dome.material = domeMaterial;
     fisheye.setEquirectSource(null);
     domeMaterialEquirect?.dispose();
     domeMaterialEquirect = null;
+    equirectActive = false;
   }
 }
 
@@ -235,7 +242,9 @@ function tick() {
   template.update(dt, time);
   updateAudioListener();
 
-  domeCubeCamera.update(renderer as unknown as THREE.WebGLRenderer, dome.templateScene);
+  if (!equirectActive) {
+    domeCubeCamera.update(renderer as unknown as THREE.WebGLRenderer, dome.templateScene);
+  }
 
   renderer.render(dome.outerScene, camera);
 

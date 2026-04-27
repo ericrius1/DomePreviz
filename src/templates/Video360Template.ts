@@ -36,12 +36,38 @@ export class Video360Template {
     this.onSourceResolutionChange?.(label);
   }
 
+  // Surfaces decode-quality hints once playback starts. Software decode of 8K
+  // HEVC/AV1 is the most common cause of "ultra choppy" reports; getVideoPlaybackQuality
+  // reveals dropped frames a few seconds in.
+  private monitorDecodeHealth() {
+    const v = this.video as HTMLVideoElement & {
+      getVideoPlaybackQuality?: () => { droppedVideoFrames: number; totalVideoFrames: number };
+    };
+    if (typeof v.getVideoPlaybackQuality !== 'function') return;
+    let lastDropped = 0;
+    const handle = window.setInterval(() => {
+      if (v.paused || v.ended || !v.src) return;
+      const q = v.getVideoPlaybackQuality!();
+      const delta = q.droppedVideoFrames - lastDropped;
+      lastDropped = q.droppedVideoFrames;
+      if (q.totalVideoFrames > 60 && delta > 5) {
+        console.warn(
+          `[Video360] ${delta} frames dropped in last interval (${q.droppedVideoFrames}/${q.totalVideoFrames} total). ` +
+          `Likely software decode at ${v.videoWidth}×${v.videoHeight} — try H.264 or HW-accelerated HEVC/AV1.`
+        );
+      }
+    }, 2000);
+    this.video.addEventListener('emptied', () => window.clearInterval(handle), { once: true });
+  }
+
   constructor() {
     this.video = document.createElement('video');
     this.video.crossOrigin = 'anonymous';
     this.video.loop = true;
     this.video.muted = false;
     this.video.playsInline = true;
+    this.video.preload = 'auto';
+    this.video.disableRemotePlayback = true;
     this.video.style.display = 'none';
     document.body.appendChild(this.video);
   }
@@ -108,6 +134,7 @@ export class Video360Template {
       if (this.params.play) this.video.play().catch(() => { /* autoplay blocked */ });
       this.setSourceResolution(`${this.video.videoWidth}×${this.video.videoHeight}`);
       if (this.videoTexture) this.onEquirectSource?.(this.videoTexture);
+      this.monitorDecodeHealth();
     }, { once: true });
   }
 
@@ -154,6 +181,7 @@ export class Video360Template {
       if (this.params.play) this.video.play().catch(() => { /* autoplay blocked */ });
       this.setSourceResolution(`${this.video.videoWidth}×${this.video.videoHeight}`);
       if (this.videoTexture) this.onEquirectSource?.(this.videoTexture);
+      this.monitorDecodeHealth();
     }, { once: true });
   }
 
